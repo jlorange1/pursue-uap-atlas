@@ -8,6 +8,7 @@ const state = {
   officialRecords: [],
   methods: [],
   researchSignals: [],
+  jurisdictionRollups: [],
   baselineSummary: null,
   baselines: [],
   sightingSummary: null,
@@ -40,6 +41,7 @@ const els = {
   intelResults: document.querySelector("#intelResults"),
   methodLoop: document.querySelector("#methodLoop"),
   integrationMatrix: document.querySelector("#integrationMatrix"),
+  globalCoverage: document.querySelector("#globalCoverage"),
   researchSignals: document.querySelector("#researchSignals"),
   caseList: document.querySelector("#caseList"),
   fileTable: document.querySelector("#fileTable"),
@@ -64,14 +66,14 @@ const els = {
 };
 
 const colors = {
-  text: "#eef4f3",
-  muted: "#9fb0ad",
-  line: "#2d3a42",
-  cyan: "#6ed4d8",
-  amber: "#e0b45b",
-  green: "#7cc891",
-  red: "#d97a6c",
-  blue: "#82a6df"
+  text: "#f2fff8",
+  muted: "#a7bab5",
+  line: "#28433f",
+  cyan: "#77e7ff",
+  amber: "#ffd166",
+  green: "#00ff99",
+  red: "#ff5f6d",
+  blue: "#8fb5ff"
 };
 
 let staticMode = false;
@@ -171,6 +173,11 @@ function transformStaticData(data) {
     byRelease: (data.summary.releases || []).map((row) => ({ label: row.release_label, value: row.count })),
     byCollectionType: countBy(collections, "source_type"),
     byReliability: countBy(collections, "reliability"),
+    byJurisdiction: data.summary.jurisdictions?.length ? data.summary.jurisdictions.map((row) => ({ label: row.label, value: row.value })) : countBy(collections, "jurisdiction"),
+    byRegion: data.summary.regions?.length ? data.summary.regions.map((row) => ({ label: row.label, value: row.value })) : countBy(collections, "region"),
+    byProvenanceBand: data.summary.provenance_bands?.length ? data.summary.provenance_bands.map((row) => ({ label: row.label, value: row.value })) : countBy(collections, "provenance_band"),
+    byCoverageRole: data.summary.coverage_roles?.length ? data.summary.coverage_roles.map((row) => ({ label: row.label, value: row.value })) : countBy(collections, "coverage_role"),
+    official_jurisdiction_count: data.summary.official_jurisdiction_count || new Set(collections.filter((item) => String(item.reliability || "").startsWith("official") || item.reliability === "reported_official").map((item) => item.jurisdiction).filter(Boolean)).size,
     byOfficialRecordType: countBy(officialRecords, "record_type"),
     baselineTypes: data.baseline_summary?.by_type || countBy(baselines, "event_type"),
     researchPriorities: countBy(researchSignals, "priority"),
@@ -215,6 +222,7 @@ function transformStaticData(data) {
     baselines,
     sightingSummary,
     sightings: data.public_sighting_samples || [],
+    jurisdictionRollups: data.jurisdiction_rollups || [],
     timeline,
     graph
   };
@@ -228,7 +236,7 @@ async function loadBaseData() {
       getJson("/api/files?limit=240"),
       getJson("/api/findings"),
       getJson("/api/sources"),
-      getJson("/api/collections?limit=260"),
+      getJson("/api/collections?limit=500"),
       getJson("/api/official-records?limit=260"),
       getJson("/api/osint-methods"),
       getJson("/api/research-signals"),
@@ -262,13 +270,14 @@ function renderStats() {
     stat("Videos", s.byKind.find((x) => /video/i.test(x.label))?.value || 0),
     stat("PDFs", s.byKind.find((x) => /pdf/i.test(x.label))?.value || 0),
     stat("Collections", s.collections),
+    stat("Jurisdictions", s.official_jurisdiction_count || s.byJurisdiction?.length || 0),
     stat("Official records", s.official_records || 0),
     stat("Public sightings", s.public_sightings),
     stat("Baselines", s.baseline_events || 0),
     stat("Research signals", s.research_signals || 0),
     stat("Cross refs", s.cross_refs)
   ].join("");
-  els.snapshotStatus.textContent = `${s.cases} case groups, ${s.files} files, ${s.collections} collections, ${s.official_records || 0} official records, ${s.public_sightings} public sightings, ${s.baseline_events || 0} baseline events`;
+  els.snapshotStatus.textContent = `${s.cases} case groups, ${s.files} files, ${s.collections} collections, ${s.official_jurisdiction_count || 0} official jurisdictions, ${s.official_records || 0} official records, ${s.public_sightings} public sightings`;
 }
 
 function fillSelect(select, rows, allLabel) {
@@ -392,25 +401,39 @@ function renderFindings() {
 function renderCollections() {
   const q = state.search.toLowerCase();
   const items = state.collections.filter((item) => {
-    return !q || [item.title, item.source_name, item.source_type, item.reliability, item.summary, JSON.stringify(item.tags)]
+    return !q || [item.title, item.source_name, item.source_type, item.reliability, item.jurisdiction, item.region, item.provenance_band, item.coverage_role, item.summary, JSON.stringify(item.tags)]
       .join(" ")
       .toLowerCase()
       .includes(q);
   });
+  const officialCount = state.collections.filter((item) => String(item.reliability || "").startsWith("official") || item.reliability === "reported_official").length;
+  const rollup = [
+    ["Jurisdictions", state.summary.official_jurisdiction_count || state.summary.byJurisdiction?.length || 0],
+    ["Official rings", officialCount],
+    ["Archive bands", (state.summary.byProvenanceBand || []).find((row) => row.label === "official_archive")?.value || 0],
+    ["Baselines", (state.summary.byCoverageRole || []).find((row) => row.label === "baseline")?.value || 0]
+  ];
   els.collectionsPanel.innerHTML = `
+    <div class="collection-rollup">
+      ${rollup.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("")}
+    </div>
     <div class="collection-grid">
       ${items.map((item) => `
         <article class="collection-item">
           <div class="case-meta">
             <span class="chip cyan">${escapeHtml(item.reliability || "source")}</span>
+            <span class="chip">${escapeHtml(item.jurisdiction || "International")}</span>
+            <span class="chip">${escapeHtml(String(item.provenance_band || "source").replaceAll("_", " "))}</span>
             <span class="chip">${escapeHtml(item.source_name || "collection")}</span>
             <span class="chip amber">${escapeHtml(item.source_type || "record")}</span>
           </div>
           <h3>${escapeHtml(item.title)}</h3>
           <p>${escapeHtml(clampText(item.summary, 210))}</p>
           <div class="case-meta">
-            ${item.row_count ? `<span class="chip">${escapeHtml(item.row_count)} rows</span>` : ""}
+            ${item.row_count ? `<span class="chip">${escapeHtml(item.row_count)}</span>` : ""}
             ${item.file_size ? `<span class="chip">${escapeHtml(item.file_size)}</span>` : ""}
+            ${item.region ? `<span class="chip">${escapeHtml(item.region)}</span>` : ""}
+            ${item.coverage_role ? `<span class="chip">${escapeHtml(String(item.coverage_role).replaceAll("_", " "))}</span>` : ""}
             <a class="chip amber" href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer">Open</a>
             ${item.metadata_url ? `<a class="chip" href="${escapeHtml(item.metadata_url)}" target="_blank" rel="noreferrer">Metadata</a>` : ""}
           </div>
@@ -423,7 +446,7 @@ function renderCollections() {
 function renderOfficialRecords() {
   const q = state.search.toLowerCase();
   const items = state.officialRecords.filter((item) => {
-    return !q || [item.title, item.creator, item.record_type, item.summary, item.subjects, item.media_types]
+    return !q || [item.title, item.creator, item.record_type, item.jurisdiction, item.summary, item.subjects, item.media_types]
       .join(" ")
       .toLowerCase()
       .includes(q);
@@ -495,13 +518,14 @@ function priorityRank(value) {
 
 function atlasScore() {
   const s = state.summary || {};
-  const sourceScore = Math.min(18, Math.round((s.collections || 0) / 9));
-  const officialScore = Math.min(18, Math.round((s.official_records || 0) / 7));
+  const sourceScore = Math.min(16, Math.round((s.collections || 0) / 9));
+  const officialScore = Math.min(16, Math.round((s.official_records || 0) / 7));
+  const jurisdictionScore = Math.min(12, (s.official_jurisdiction_count || s.byJurisdiction?.length || 0));
   const baselineScore = s.baseline_events ? 16 : 0;
   const sightingScore = Math.min(16, Math.round((s.public_sightings || 0) / 6000));
-  const graphScore = Math.min(14, Math.round((s.cross_refs || 0) / 30));
+  const graphScore = Math.min(12, Math.round((s.cross_refs || 0) / 30));
   const signalScore = Math.min(12, (s.research_signals || 0) * 2);
-  return Math.min(99, 21 + sourceScore + officialScore + baselineScore + sightingScore + graphScore + signalScore);
+  return Math.min(99, 15 + sourceScore + officialScore + jurisdictionScore + baselineScore + sightingScore + graphScore + signalScore);
 }
 
 function renderIntel() {
@@ -515,7 +539,7 @@ function renderIntel() {
     ["Queue", `${s.research_signals || 0} signals`, "Generated leads preserve confidence, evidence references, and next actions."]
   ];
   els.methodLoop.innerHTML = `
-    <div class="section-heading compact"><div><p class="eyebrow">Recursive research methodology</p><h3>Collect → normalize → correlate → challenge → queue</h3></div></div>
+    <div class="section-heading compact"><div><p class="eyebrow">Recursive research methodology</p><h3>Collect -> normalize -> correlate -> challenge -> queue</h3></div></div>
     <div class="loop-grid">
       ${loop.map(([title, metric, body], index) => `
         <article class="loop-step">
@@ -547,6 +571,59 @@ function renderIntel() {
       `).join("")}
     </div>
   `;
+  const jurisdictionRows = (s.byJurisdiction || []).slice(0, 12);
+  const regionRows = (s.byRegion || []).slice(0, 6);
+  const provenanceRows = (s.byProvenanceBand || s.byReliability || []).slice(0, 6);
+  const officialRings = state.collections
+    .filter((item) => String(item.reliability || "").startsWith("official") || item.reliability === "reported_official")
+    .sort((a, b) => String(a.region || "").localeCompare(String(b.region || "")) || String(a.jurisdiction || "").localeCompare(String(b.jurisdiction || "")))
+    .slice(0, 18);
+  const maxJurisdiction = Math.max(...jurisdictionRows.map((row) => row.value), 1);
+  if (els.globalCoverage) {
+    els.globalCoverage.innerHTML = `
+      <div class="section-heading compact"><div><p class="eyebrow">Global source atlas</p><h3>Official provenance rings and coverage gaps</h3></div></div>
+      <div class="coverage-grid">
+        <article class="coverage-card primary">
+          <span class="field-label">Official jurisdictions</span>
+          <strong>${escapeHtml(s.official_jurisdiction_count || jurisdictionRows.length || 0)}</strong>
+          <p>Government, parliamentary, archive, defence, space, aviation, and scientific baseline sources are tagged by jurisdiction, region, provenance band, and coverage role.</p>
+        </article>
+        <article class="coverage-card">
+          <span class="field-label">Regions</span>
+          <div class="mini-stack">
+            ${regionRows.map((row) => `<span><b>${escapeHtml(row.label)}</b>${escapeHtml(row.value)}</span>`).join("")}
+          </div>
+        </article>
+        <article class="coverage-card">
+          <span class="field-label">Provenance bands</span>
+          <div class="mini-stack">
+            ${provenanceRows.map((row) => `<span><b>${escapeHtml(String(row.label || "").replaceAll("_", " "))}</b>${escapeHtml(row.value)}</span>`).join("")}
+          </div>
+        </article>
+      </div>
+      <div class="jurisdiction-bars" aria-label="Top source jurisdictions">
+        ${jurisdictionRows.map((row) => `
+          <div class="jurisdiction-item">
+            <span>${escapeHtml(row.label)}</span>
+            <span class="bar-track"><span class="bar-fill" style="width:${Math.max(6, row.value / maxJurisdiction * 100)}%"></span></span>
+            <strong>${escapeHtml(row.value)}</strong>
+          </div>
+        `).join("")}
+      </div>
+      <div class="source-ring-grid">
+        ${officialRings.map((item) => `
+          <article class="source-ring">
+            <div class="case-meta">
+              <span class="chip cyan">${escapeHtml(item.country_code || item.jurisdiction || "INT")}</span>
+              <span class="chip amber">${escapeHtml(String(item.provenance_band || item.reliability || "source").replaceAll("_", " "))}</span>
+            </div>
+            <h4>${escapeHtml(item.jurisdiction || "International")}</h4>
+            <p>${escapeHtml(item.title)}</p>
+          </article>
+        `).join("")}
+      </div>
+    `;
+  }
   const signals = [...state.researchSignals].sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority));
   els.researchSignals.innerHTML = `
     <div class="section-heading compact"><div><p class="eyebrow">Priority intelligence queue</p><h3>What deserves attention next</h3></div></div>
@@ -574,8 +651,8 @@ function searchableItems() {
   return [
     ...state.cases.map((item) => ({ type: "Case", title: item.title, body: `${item.summary} ${item.category} ${item.timeline_date} ${JSON.stringify(item.topics)}`, meta: `${item.category || "case"} / ${item.timeline_date || "no date"}`, caseId: item.id })),
     ...state.files.map((item) => ({ type: "File", title: item.title, body: `${item.description} ${item.official_note} ${item.agency} ${item.incident_location} ${item.case_title}`, meta: `${item.file_kind || "file"} / ${item.agency || "unknown"}`, caseId: item.case_id })),
-    ...state.officialRecords.map((item) => ({ type: "Official record", title: item.title, body: `${item.creator} ${item.summary} ${item.subjects} ${item.media_types}`, meta: `${item.source_name || "official"} / ${item.record_type || "record"}`, url: item.catalog_url || item.metadata_url })),
-    ...state.collections.map((item) => ({ type: "Source", title: item.title, body: `${item.source_name} ${item.source_type} ${item.reliability} ${item.summary} ${JSON.stringify(item.tags)}`, meta: `${item.reliability || "source"} / ${item.source_name || ""}`, url: item.url })),
+    ...state.officialRecords.map((item) => ({ type: "Official record", title: item.title, body: `${item.creator} ${item.summary} ${item.subjects} ${item.media_types} ${item.jurisdiction}`, meta: `${item.source_name || "official"} / ${item.record_type || "record"}`, url: item.catalog_url || item.metadata_url })),
+    ...state.collections.map((item) => ({ type: "Source", title: item.title, body: `${item.source_name} ${item.source_type} ${item.reliability} ${item.jurisdiction} ${item.region} ${item.provenance_band} ${item.coverage_role} ${item.summary} ${JSON.stringify(item.tags)}`, meta: `${item.jurisdiction || "global"} / ${String(item.provenance_band || item.reliability || "source").replaceAll("_", " ")}`, url: item.url })),
     ...state.sightings.slice(0, 800).map((item) => ({ type: "Public sighting", title: [item.city, item.state, item.country].filter(Boolean).join(", ") || "Public sighting", body: `${item.shape} ${item.year} ${item.summary}`, meta: `${item.shape || "unknown"} / ${item.year || "no year"}` })),
     ...state.baselines.map((item) => ({ type: "Baseline", title: item.event_type === "fireball" ? `NASA fireball ${item.occurred}` : `${item.city || "FAA"} UAS report ${item.occurred}`, body: `${item.source_name} ${item.event_type} ${item.summary} ${item.city} ${item.state} ${item.country}`, meta: `${item.event_type || "baseline"} / ${item.source_name || ""}`, url: item.source_url }))
   ];
@@ -667,12 +744,12 @@ function renderBaselines() {
 
 function shapeColor(shape) {
   const value = String(shape || "").toLowerCase();
-  if (value.includes("triangle")) return "#e0b45b";
-  if (value.includes("sphere") || value.includes("circle") || value.includes("round")) return "#6ed4d8";
-  if (value.includes("light") || value.includes("fireball")) return "#f3e58b";
-  if (value.includes("disk") || value.includes("disc")) return "#82a6df";
-  if (value.includes("cigar") || value.includes("cylinder")) return "#d97a6c";
-  return "#7cc891";
+  if (value.includes("triangle")) return colors.amber;
+  if (value.includes("sphere") || value.includes("circle") || value.includes("round")) return colors.cyan;
+  if (value.includes("light") || value.includes("fireball")) return "#f3ff94";
+  if (value.includes("disk") || value.includes("disc")) return colors.blue;
+  if (value.includes("cigar") || value.includes("cylinder")) return colors.red;
+  return colors.green;
 }
 
 function mapVisibleSightings() {
@@ -714,8 +791,8 @@ function mapVisibleBaselines() {
 }
 
 function baselineColor(type) {
-  if (String(type).includes("fireball")) return "#f08f5f";
-  if (String(type).includes("uas")) return "#b8d86e";
+  if (String(type).includes("fireball")) return "#ff8f5f";
+  if (String(type).includes("uas")) return colors.green;
   return colors.amber;
 }
 
@@ -731,10 +808,17 @@ function drawSightingMap() {
   canvas.height = height * dpr;
   ctx.scale(dpr, dpr);
   ctx.clearRect(0, 0, width, height);
-  ctx.fillStyle = "#071014";
+  ctx.fillStyle = "#03080a";
   ctx.fillRect(0, 0, width, height);
 
-  ctx.strokeStyle = "rgba(159,176,173,0.16)";
+  const glow = ctx.createRadialGradient(width * 0.5, height * 0.48, 20, width * 0.5, height * 0.48, width * 0.72);
+  glow.addColorStop(0, "rgba(0,255,153,0.08)");
+  glow.addColorStop(0.55, "rgba(119,231,255,0.035)");
+  glow.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.strokeStyle = "rgba(0,255,153,0.16)";
   ctx.lineWidth = 1;
   for (let lon = -180; lon <= 180; lon += 30) {
     const x = ((lon + 180) / 360) * width;
@@ -751,7 +835,7 @@ function drawSightingMap() {
     ctx.stroke();
   }
 
-  ctx.fillStyle = "rgba(36,48,57,0.82)";
+  ctx.fillStyle = "rgba(19,39,38,0.84)";
   [
     [0.12, 0.28, 0.2, 0.26], [0.32, 0.34, 0.13, 0.22], [0.46, 0.25, 0.18, 0.22],
     [0.59, 0.36, 0.12, 0.3], [0.72, 0.32, 0.16, 0.18], [0.78, 0.62, 0.1, 0.1]
@@ -771,18 +855,23 @@ function drawSightingMap() {
     const x = ((Number(item.longitude) + 180) / 360) * width;
     const y = ((90 - Number(item.latitude)) / 180) * height;
     if (x < 0 || x > width || y < 0 || y > height) continue;
+    ctx.shadowColor = shapeColor(item.shape);
+    ctx.shadowBlur = 5;
     ctx.fillStyle = shapeColor(item.shape);
-    ctx.globalAlpha = 0.42;
+    ctx.globalAlpha = 0.38;
     ctx.beginPath();
     ctx.arc(x, y, 1.35, 0, Math.PI * 2);
     ctx.fill();
   }
+  ctx.shadowBlur = 0;
   baselines.forEach((item) => {
     const x = ((Number(item.longitude) + 180) / 360) * width;
     const y = ((90 - Number(item.latitude)) / 180) * height;
     if (x < 0 || x > width || y < 0 || y > height) return;
     const energy = Number(item.metric_primary);
     const radius = item.event_type === "fireball" && Number.isFinite(energy) ? Math.max(2.4, Math.min(9, Math.sqrt(energy) * 1.1)) : 2.6;
+    ctx.shadowColor = baselineColor(item.event_type);
+    ctx.shadowBlur = 8;
     ctx.fillStyle = baselineColor(item.event_type);
     ctx.globalAlpha = item.event_type === "fireball" ? 0.72 : 0.54;
     ctx.beginPath();
@@ -793,6 +882,7 @@ function drawSightingMap() {
     ctx.lineWidth = 0.8;
     ctx.stroke();
   });
+  ctx.shadowBlur = 0;
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = "source-over";
   ctx.fillStyle = colors.text;
@@ -1019,6 +1109,8 @@ function renderCharts() {
     ["Agencies", state.summary.byAgency],
     ["File types", state.summary.byKind],
     ["Categories", state.summary.byCategory],
+    ["Source jurisdictions", state.summary.byJurisdiction || []],
+    ["Provenance bands", state.summary.byProvenanceBand || []],
     ["Source reliability", state.summary.byReliability || []],
     ["Public report shapes", state.summary.sightingShapes || []]
   ];
@@ -1063,6 +1155,12 @@ function drawGraph() {
   const width = canvas.width / dpr;
   const height = canvas.height / dpr;
   ctx.clearRect(0, 0, width, height);
+  const field = ctx.createRadialGradient(width / 2, height / 2, 16, width / 2, height / 2, Math.max(width, height) * 0.62);
+  field.addColorStop(0, "rgba(0,255,153,0.08)");
+  field.addColorStop(0.55, "rgba(119,231,255,0.035)");
+  field.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = field;
+  ctx.fillRect(0, 0, width, height);
 
   const nodes = state.graph.nodes;
   const edges = state.graph.edges;
@@ -1091,7 +1189,7 @@ function drawGraph() {
     const b = positions.get(edge.to_case_id);
     if (!a || !b) return;
     const isFocus = focus && (edge.from_case_id === focus || edge.to_case_id === focus);
-    ctx.strokeStyle = isFocus ? "rgba(110, 212, 216, 0.62)" : "rgba(159, 176, 173, 0.14)";
+    ctx.strokeStyle = isFocus ? "rgba(0, 255, 153, 0.66)" : "rgba(119, 231, 255, 0.13)";
     ctx.lineWidth = isFocus ? Math.min(4, 1 + edge.weight / 6) : Math.min(2, 0.5 + edge.weight / 18);
     ctx.beginPath();
     ctx.moveTo(a.x, a.y);
@@ -1102,6 +1200,8 @@ function drawGraph() {
   nodes.forEach((node) => {
     const pos = positions.get(node.id);
     const isFocus = node.id === focus;
+    ctx.shadowColor = isFocus ? colors.green : graphColor(node.category);
+    ctx.shadowBlur = isFocus ? 14 : 6;
     ctx.beginPath();
     ctx.fillStyle = isFocus ? colors.text : graphColor(node.category);
     ctx.arc(pos.x, pos.y, isFocus ? pos.r + 4 : pos.r, 0, Math.PI * 2);
@@ -1110,6 +1210,7 @@ function drawGraph() {
     ctx.lineWidth = isFocus ? 3 : 1.5;
     ctx.stroke();
   });
+  ctx.shadowBlur = 0;
 
   const selected = nodes.find((node) => node.id === focus);
   if (selected) {
