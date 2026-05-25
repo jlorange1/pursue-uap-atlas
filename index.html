@@ -70,6 +70,7 @@
               <button data-view="sightings" type="button">Sightings</button>
               <button data-view="baselines" type="button">Baselines</button>
               <button data-view="map" type="button">Map</button>
+              <button data-view="board" type="button">Board</button>
             </div>
           </div>
           <div id="intelPanel" class="intel-panel" aria-live="polite">
@@ -94,6 +95,7 @@
             <div id="methodLoop" class="method-loop"></div>
             <div id="integrationMatrix" class="integration-matrix"></div>
             <div id="globalCoverage" class="global-coverage"></div>
+            <div id="credibilityEngine" class="credibility-engine"></div>
             <div id="researchSignals" class="research-signals"></div>
           </div>
           <div id="caseList" class="case-list hidden" aria-live="polite"></div>
@@ -127,9 +129,45 @@
                 To year
                 <input id="mapYearMax" type="number" min="1900" max="2030" value="2026">
               </label>
+              <label>
+                Render mode
+                <select id="mapRenderMode">
+                  <option value="density">Density clusters</option>
+                  <option value="points">Raw points</option>
+                </select>
+              </label>
+              <label>
+                Playback year
+                <input id="mapYearSlider" type="range" min="1900" max="2026" value="2026">
+              </label>
+              <button id="mapPlay" class="ghost-button" type="button">Play</button>
             </div>
+            <div id="mapFocusSummary" class="map-focus-summary"></div>
             <canvas id="sightingMapCanvas" width="1100" height="620" aria-label="World map of public sighting reports"></canvas>
+            <div id="mapTimeline" class="map-timeline" aria-label="Sighting and baseline timeline"></div>
             <p id="mapCaption" class="caption">Crowdsourced report map. Point density reflects reporting behavior as well as sightings.</p>
+          </div>
+          <div id="boardPanel" class="board-panel hidden" aria-live="polite">
+            <div class="board-grid">
+              <section class="board-dossier">
+                <div class="section-heading compact">
+                  <div>
+                    <p class="eyebrow">Investigation workspace</p>
+                    <h3>Pinned evidence board</h3>
+                  </div>
+                  <div class="board-actions">
+                    <button id="copyBriefing" class="ghost-button" type="button">Copy Briefing</button>
+                    <button id="clearBoard" class="ghost-button danger" type="button">Clear</button>
+                  </div>
+                </div>
+                <div id="boardItems" class="board-items"></div>
+              </section>
+              <section class="board-notes">
+                <label for="boardNotes">Analyst notes</label>
+                <textarea id="boardNotes" rows="12" placeholder="Pin cases and sources, then write your working hypothesis, doubts, and next verification steps."></textarea>
+                <div id="briefingPreview" class="briefing-preview"></div>
+              </section>
+            </div>
           </div>
         </div>
 

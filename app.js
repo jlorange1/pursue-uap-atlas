@@ -24,7 +24,9 @@ const state = {
   category: "",
   agency: "",
   kind: "",
-  graphFocus: null
+  graphFocus: null,
+  board: { items: [], notes: "" },
+  mapPlaybackTimer: null
 };
 
 const els = {
@@ -42,6 +44,7 @@ const els = {
   methodLoop: document.querySelector("#methodLoop"),
   integrationMatrix: document.querySelector("#integrationMatrix"),
   globalCoverage: document.querySelector("#globalCoverage"),
+  credibilityEngine: document.querySelector("#credibilityEngine"),
   researchSignals: document.querySelector("#researchSignals"),
   caseList: document.querySelector("#caseList"),
   fileTable: document.querySelector("#fileTable"),
@@ -56,7 +59,18 @@ const els = {
   mapShapeFilter: document.querySelector("#mapShapeFilter"),
   mapYearMin: document.querySelector("#mapYearMin"),
   mapYearMax: document.querySelector("#mapYearMax"),
+  mapRenderMode: document.querySelector("#mapRenderMode"),
+  mapYearSlider: document.querySelector("#mapYearSlider"),
+  mapPlay: document.querySelector("#mapPlay"),
+  mapTimeline: document.querySelector("#mapTimeline"),
+  mapFocusSummary: document.querySelector("#mapFocusSummary"),
   mapCaption: document.querySelector("#mapCaption"),
+  boardPanel: document.querySelector("#boardPanel"),
+  boardItems: document.querySelector("#boardItems"),
+  boardNotes: document.querySelector("#boardNotes"),
+  briefingPreview: document.querySelector("#briefingPreview"),
+  copyBriefing: document.querySelector("#copyBriefing"),
+  clearBoard: document.querySelector("#clearBoard"),
   detailEmpty: document.querySelector("#detailEmpty"),
   detailContent: document.querySelector("#detailContent"),
   timelinePanel: document.querySelector("#timelinePanel"),
@@ -129,6 +143,79 @@ function countBy(items, key) {
   return [...counts.entries()]
     .map(([label, value]) => ({ label, value }))
     .sort((a, b) => b.value - a.value || String(a.label).localeCompare(String(b.label)));
+}
+
+function loadBoard() {
+  try {
+    const saved = JSON.parse(localStorage.getItem("pursue-board") || "{}");
+    state.board = {
+      items: Array.isArray(saved.items) ? saved.items : [],
+      notes: typeof saved.notes === "string" ? saved.notes : ""
+    };
+  } catch {
+    state.board = { items: [], notes: "" };
+  }
+}
+
+function saveBoard() {
+  localStorage.setItem("pursue-board", JSON.stringify(state.board));
+}
+
+function pinBoardItem(item) {
+  const id = `${item.type}:${item.id || item.title}`;
+  const exists = state.board.items.some((entry) => `${entry.type}:${entry.id || entry.title}` === id);
+  if (!exists) {
+    state.board.items.unshift({
+      ...item,
+      pinned_at: new Date().toISOString()
+    });
+    state.board.items = state.board.items.slice(0, 48);
+    saveBoard();
+  }
+  renderBoard();
+}
+
+function removeBoardItem(index) {
+  state.board.items.splice(index, 1);
+  saveBoard();
+  renderBoard();
+}
+
+function sourceCredibilityScore(item) {
+  const reliability = String(item.reliability || "").toLowerCase();
+  const band = String(item.provenance_band || "").toLowerCase();
+  const role = String(item.coverage_role || "").toLowerCase();
+  let score = 40;
+  if (reliability === "official") score += 34;
+  if (reliability === "official_international") score += 30;
+  if (reliability === "reported_official") score += 18;
+  if (reliability === "scientific_project") score += 18;
+  if (band === "official_primary") score += 16;
+  if (band === "official_archive") score += 14;
+  if (band === "official_report") score += 11;
+  if (band === "scientific_context") score += 10;
+  if (band === "crowdsourced") score -= 20;
+  if (role === "case_database") score += 8;
+  if (role === "baseline") score += 5;
+  if (role === "source_lead") score -= 4;
+  return Math.max(5, Math.min(99, score));
+}
+
+function credibilityLabel(score) {
+  if (score >= 86) return "Primary";
+  if (score >= 72) return "Strong";
+  if (score >= 55) return "Context";
+  if (score >= 38) return "Lead";
+  return "Unvetted";
+}
+
+function yearFrom(value) {
+  const match = String(value || "").match(/\b(19|20)\d{2}\b/);
+  return match ? Number(match[0]) : null;
+}
+
+function formatSourceBand(value) {
+  return String(value || "source").replaceAll("_", " ");
 }
 
 function normalizeStaticRows(rows) {
@@ -229,6 +316,7 @@ function transformStaticData(data) {
 }
 
 async function loadBaseData() {
+  loadBoard();
   try {
     const [summary, cases, files, findings, sources, collections, officialRecords, methods, researchSignals, baselineSummary, baselines, sightingSummary, sightings, timeline, graph] = await Promise.all([
       getJson("/api/summary"),
@@ -434,6 +522,7 @@ function renderCollections() {
             ${item.file_size ? `<span class="chip">${escapeHtml(item.file_size)}</span>` : ""}
             ${item.region ? `<span class="chip">${escapeHtml(item.region)}</span>` : ""}
             ${item.coverage_role ? `<span class="chip">${escapeHtml(String(item.coverage_role).replaceAll("_", " "))}</span>` : ""}
+            <button class="chip pin-chip" type="button" data-pin-source="${escapeHtml(item.id)}">Pin</button>
             <a class="chip amber" href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer">Open</a>
             ${item.metadata_url ? `<a class="chip" href="${escapeHtml(item.metadata_url)}" target="_blank" rel="noreferrer">Metadata</a>` : ""}
           </div>
@@ -441,6 +530,21 @@ function renderCollections() {
       `).join("")}
     </div>
   `;
+  els.collectionsPanel.querySelectorAll("[data-pin-source]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const item = state.collections.find((entry) => entry.id === button.dataset.pinSource);
+      if (!item) return;
+      pinBoardItem({
+        type: "Source",
+        id: item.id,
+        title: item.title,
+        meta: `${item.jurisdiction || "International"} / ${formatSourceBand(item.provenance_band || item.reliability)}`,
+        summary: item.summary,
+        url: item.url,
+        score: sourceCredibilityScore(item)
+      });
+    });
+  });
 }
 
 function renderOfficialRecords() {
@@ -466,12 +570,28 @@ function renderOfficialRecords() {
             ${item.item_count ? `<span class="chip">${escapeHtml(item.item_count)} items</span>` : ""}
             ${item.digital_object_count ? `<span class="chip">${escapeHtml(item.digital_object_count)} digital objects</span>` : ""}
             ${item.media_types ? `<span class="chip">${escapeHtml(clampText(item.media_types, 36))}</span>` : ""}
+            <button class="chip pin-chip" type="button" data-pin-record="${escapeHtml(item.id)}">Pin</button>
             <a class="chip amber" href="${escapeHtml(item.catalog_url || item.metadata_url)}" target="_blank" rel="noreferrer">Catalog</a>
           </div>
         </article>
       `).join("")}
     </div>
   `;
+  els.recordsPanel.querySelectorAll("[data-pin-record]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const item = state.officialRecords.find((entry) => entry.id === button.dataset.pinRecord);
+      if (!item) return;
+      pinBoardItem({
+        type: "Official record",
+        id: item.id,
+        title: item.title,
+        meta: `${item.source_name || "official"} / ${item.record_type || "record"}`,
+        summary: item.summary || item.creator || item.subjects || "",
+        url: item.catalog_url || item.metadata_url,
+        score: 86
+      });
+    });
+  });
 }
 
 function renderSightings() {
@@ -624,6 +744,64 @@ function renderIntel() {
       </div>
     `;
   }
+  if (els.credibilityEngine) {
+    const scoredSources = state.collections
+      .map((item) => ({ ...item, score: sourceCredibilityScore(item) }))
+      .sort((a, b) => b.score - a.score || String(a.title).localeCompare(String(b.title)));
+    const selected = state.selectedCase?.case;
+    const selectedFiles = state.selectedCase?.files || [];
+    const selectedEdges = state.selectedCase?.outgoing || [];
+    const selectedYear = yearFrom(selected?.timeline_date);
+    const caseSources = state.collections.filter((source) => {
+      const haystack = `${source.title} ${source.source_name} ${source.summary} ${JSON.stringify(source.tags)}`.toLowerCase();
+      return selected && [selected.category, selected.title, selected.summary, selectedYear].some((term) => term && haystack.includes(String(term).toLowerCase().split(" ")[0]));
+    }).slice(0, 4);
+    const correlationCards = [
+      ["Selected dossier", selected?.title || "No case selected", `${selectedFiles.length} files / ${selectedEdges.length} generated links`],
+      ["Provenance score", scoredSources[0] ? `${credibilityLabel(scoredSources[0].score)} ${scoredSources[0].score}/99` : "--", scoredSources[0]?.title || "No source score"],
+      ["Temporal anchor", selectedYear || "unknown", selected?.timeline_date || "No extracted year"],
+      ["Source overlap", caseSources.length, caseSources.map((item) => item.source_name).join(", ") || "No direct overlap"]
+    ];
+    els.credibilityEngine.innerHTML = `
+      <div class="section-heading compact"><div><p class="eyebrow">Credibility and correlation engine</p><h3>Rank provenance, then surface review leads</h3></div></div>
+      <div class="correlation-grid">
+        ${correlationCards.map(([label, value, body]) => `
+          <article class="correlation-card">
+            <span class="field-label">${escapeHtml(label)}</span>
+            <strong>${escapeHtml(value)}</strong>
+            <p>${escapeHtml(clampText(body, 120))}</p>
+          </article>
+        `).join("")}
+      </div>
+      <div class="source-scoreboard">
+        ${scoredSources.slice(0, 8).map((item) => `
+          <article class="score-row">
+            <div>
+              <span class="field-label">${escapeHtml(item.jurisdiction || "International")} / ${escapeHtml(formatSourceBand(item.provenance_band))}</span>
+              <h4>${escapeHtml(item.title)}</h4>
+            </div>
+            <strong>${escapeHtml(item.score)}</strong>
+            <button class="chip pin-chip" type="button" data-score-pin="${escapeHtml(item.id)}">Pin</button>
+          </article>
+        `).join("")}
+      </div>
+    `;
+    els.credibilityEngine.querySelectorAll("[data-score-pin]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const item = scoredSources.find((entry) => entry.id === button.dataset.scorePin);
+        if (!item) return;
+        pinBoardItem({
+          type: "Source",
+          id: item.id,
+          title: item.title,
+          meta: `${item.jurisdiction || "International"} / ${formatSourceBand(item.provenance_band)}`,
+          summary: item.summary,
+          url: item.url,
+          score: item.score
+        });
+      });
+    });
+  }
   const signals = [...state.researchSignals].sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority));
   els.researchSignals.innerHTML = `
     <div class="section-heading compact"><div><p class="eyebrow">Priority intelligence queue</p><h3>What deserves attention next</h3></div></div>
@@ -683,6 +861,78 @@ function runIntelSearch() {
   });
   els.intelResults.querySelectorAll("[data-intel-url]").forEach((button) => {
     button.addEventListener("click", () => window.open(button.dataset.intelUrl, "_blank", "noreferrer"));
+  });
+}
+
+function buildBriefing() {
+  const items = state.board.items;
+  const lines = [
+    "PURSUE UAP Atlas Investigation Briefing",
+    `Generated: ${new Date().toLocaleString()}`,
+    "",
+    `Pinned evidence: ${items.length}`,
+    `Analyst notes: ${state.board.notes || "No notes yet."}`,
+    ""
+  ];
+  items.forEach((item, index) => {
+    lines.push(`${index + 1}. [${item.type}] ${item.title}`);
+    lines.push(`   Meta: ${item.meta || "n/a"}`);
+    if (item.score) lines.push(`   Credibility: ${credibilityLabel(item.score)} (${item.score}/99)`);
+    lines.push(`   Summary: ${clampText(item.summary, 360)}`);
+    if (item.url) lines.push(`   Source: ${item.url}`);
+    lines.push("");
+  });
+  return lines.join("\n");
+}
+
+function renderBoard() {
+  if (!els.boardPanel) return;
+  if (els.boardNotes && els.boardNotes.value !== state.board.notes) {
+    els.boardNotes.value = state.board.notes;
+  }
+  const items = state.board.items;
+  const typeCounts = countBy(items, "type");
+  const avgScore = items.length ? Math.round(items.reduce((sum, item) => sum + Number(item.score || 50), 0) / items.length) : 0;
+  const rollup = [
+    ["Pinned", items.length],
+    ["Avg score", avgScore ? `${avgScore}/99` : "--"],
+    ["Types", typeCounts.length],
+    ["Notes", state.board.notes ? "active" : "empty"]
+  ];
+  const itemHtml = items.length ? items.map((item, index) => `
+    <article class="board-item">
+      <div class="case-meta">
+        <span class="chip cyan">${escapeHtml(item.type)}</span>
+        <span class="chip amber">${escapeHtml(item.score ? `${credibilityLabel(item.score)} ${item.score}/99` : "unscored")}</span>
+      </div>
+      <h4>${escapeHtml(item.title)}</h4>
+      <p>${escapeHtml(clampText(item.summary, 230))}</p>
+      <div class="case-meta">
+        <span class="chip">${escapeHtml(item.meta || "local evidence")}</span>
+        ${item.caseId ? `<button class="chip" type="button" data-board-case="${escapeHtml(item.caseId)}">Open case</button>` : ""}
+        ${item.url ? `<a class="chip amber" href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer">Source</a>` : ""}
+        <button class="chip danger" type="button" data-remove-board="${index}">Remove</button>
+      </div>
+    </article>
+  `).join("") : `<div class="empty-state compact"><h2>No pinned evidence</h2><p>Open a case, source, or official record and pin it to build an investigation briefing.</p></div>`;
+  els.boardItems.innerHTML = `
+    <div class="collection-rollup board-rollup">
+      ${rollup.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("")}
+    </div>
+    ${itemHtml}
+  `;
+  els.briefingPreview.innerHTML = `
+    <span class="field-label">Briefing preview</span>
+    <pre>${escapeHtml(buildBriefing())}</pre>
+  `;
+  els.boardItems.querySelectorAll("[data-remove-board]").forEach((button) => {
+    button.addEventListener("click", () => removeBoardItem(Number(button.dataset.removeBoard)));
+  });
+  els.boardItems.querySelectorAll("[data-board-case]").forEach((button) => {
+    button.addEventListener("click", () => {
+      switchView("cases");
+      selectCase(button.dataset.boardCase);
+    });
   });
 }
 
@@ -796,6 +1046,92 @@ function baselineColor(type) {
   return colors.amber;
 }
 
+function renderMapTimeline(points, baselines) {
+  if (!els.mapTimeline) return;
+  const years = new Map();
+  [...points, ...baselines].forEach((item) => {
+    const year = Number(item.year || yearFrom(item.occurred));
+    if (!Number.isFinite(year)) return;
+    years.set(year, (years.get(year) || 0) + 1);
+  });
+  const rows = [...years.entries()].sort((a, b) => a[0] - b[0]);
+  const max = Math.max(...rows.map(([, value]) => value), 1);
+  const minYear = Number(els.mapYearMin?.value || 1900);
+  const maxYear = Number(els.mapYearMax?.value || 2026);
+  els.mapTimeline.innerHTML = rows.slice(-90).map(([year, value]) => `
+    <button class="timeline-bar ${year >= minYear && year <= maxYear ? "active" : ""}" type="button" data-map-year="${year}" aria-label="${year}: ${value} mapped records">
+      <span style="height:${Math.max(8, value / max * 100)}%"></span>
+      <b>${year}</b>
+    </button>
+  `).join("");
+  els.mapTimeline.querySelectorAll("[data-map-year]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const year = Number(button.dataset.mapYear);
+      els.mapYearMin.value = Math.max(1900, year - 3);
+      els.mapYearMax.value = year;
+      if (els.mapYearSlider) els.mapYearSlider.value = year;
+      drawSightingMap();
+    });
+  });
+}
+
+function drawClusterLayer(ctx, items, width, height, colorFn, options = {}) {
+  const cells = new Map();
+  const cellSize = options.cellSize || 13;
+  items.forEach((item) => {
+    const lat = Number(item.latitude);
+    const lon = Number(item.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+    const x = ((lon + 180) / 360) * width;
+    const y = ((90 - lat) / 180) * height;
+    if (x < 0 || x > width || y < 0 || y > height) return;
+    const key = `${Math.floor(x / cellSize)}:${Math.floor(y / cellSize)}`;
+    const entry = cells.get(key) || { x: 0, y: 0, count: 0, color: colorFn(item) };
+    entry.x += x;
+    entry.y += y;
+    entry.count += 1;
+    cells.set(key, entry);
+  });
+  const maxCount = Math.max(...[...cells.values()].map((cell) => cell.count), 1);
+  [...cells.values()].forEach((cell) => {
+    const x = cell.x / cell.count;
+    const y = cell.y / cell.count;
+    const radius = Math.max(2, Math.min(18, 1.6 + Math.sqrt(cell.count / maxCount) * 18));
+    ctx.shadowColor = cell.color;
+    ctx.shadowBlur = 12;
+    ctx.fillStyle = cell.color;
+    ctx.globalAlpha = Math.max(0.2, Math.min(0.75, 0.2 + cell.count / maxCount));
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 0.82;
+    ctx.strokeStyle = "rgba(242,255,248,0.22)";
+    ctx.lineWidth = 0.7;
+    ctx.stroke();
+  });
+  ctx.shadowBlur = 0;
+  return cells.size;
+}
+
+function toggleMapPlayback() {
+  if (state.mapPlaybackTimer) {
+    clearInterval(state.mapPlaybackTimer);
+    state.mapPlaybackTimer = null;
+    if (els.mapPlay) els.mapPlay.textContent = "Play";
+    return;
+  }
+  if (els.mapPlay) els.mapPlay.textContent = "Pause";
+  state.mapPlaybackTimer = setInterval(() => {
+    const min = Number(els.mapYearMin?.min || 1900);
+    const max = Number(els.mapYearSlider?.max || 2026);
+    let next = Number(els.mapYearSlider?.value || els.mapYearMax?.value || min) + 1;
+    if (next > max) next = min;
+    if (els.mapYearSlider) els.mapYearSlider.value = next;
+    if (els.mapYearMax) els.mapYearMax.value = next;
+    drawSightingMap();
+  }, 550);
+}
+
 function drawSightingMap() {
   const canvas = els.sightingMapCanvas;
   if (!canvas) return;
@@ -848,40 +1184,53 @@ function drawSightingMap() {
   const layer = els.mapLayerFilter?.value || "sightings";
   const points = layer === "baselines" ? [] : mapVisibleSightings();
   const baselines = layer === "sightings" ? [] : mapVisibleBaselines();
+  const renderMode = els.mapRenderMode?.value || "density";
   const maxPoints = Math.min(points.length, 50000);
   ctx.globalCompositeOperation = "lighter";
-  for (let i = 0; i < maxPoints; i++) {
-    const item = points[i];
-    const x = ((Number(item.longitude) + 180) / 360) * width;
-    const y = ((90 - Number(item.latitude)) / 180) * height;
-    if (x < 0 || x > width || y < 0 || y > height) continue;
-    ctx.shadowColor = shapeColor(item.shape);
-    ctx.shadowBlur = 5;
-    ctx.fillStyle = shapeColor(item.shape);
-    ctx.globalAlpha = 0.38;
-    ctx.beginPath();
-    ctx.arc(x, y, 1.35, 0, Math.PI * 2);
-    ctx.fill();
+  let renderedSightings = 0;
+  if (renderMode === "density") {
+    renderedSightings = drawClusterLayer(ctx, points.slice(0, maxPoints), width, height, (item) => shapeColor(item.shape), { cellSize: 12 });
+  } else {
+    for (let i = 0; i < maxPoints; i++) {
+      const item = points[i];
+      const x = ((Number(item.longitude) + 180) / 360) * width;
+      const y = ((90 - Number(item.latitude)) / 180) * height;
+      if (x < 0 || x > width || y < 0 || y > height) continue;
+      renderedSightings += 1;
+      ctx.shadowColor = shapeColor(item.shape);
+      ctx.shadowBlur = 5;
+      ctx.fillStyle = shapeColor(item.shape);
+      ctx.globalAlpha = 0.38;
+      ctx.beginPath();
+      ctx.arc(x, y, 1.35, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
   ctx.shadowBlur = 0;
-  baselines.forEach((item) => {
-    const x = ((Number(item.longitude) + 180) / 360) * width;
-    const y = ((90 - Number(item.latitude)) / 180) * height;
-    if (x < 0 || x > width || y < 0 || y > height) return;
-    const energy = Number(item.metric_primary);
-    const radius = item.event_type === "fireball" && Number.isFinite(energy) ? Math.max(2.4, Math.min(9, Math.sqrt(energy) * 1.1)) : 2.6;
-    ctx.shadowColor = baselineColor(item.event_type);
-    ctx.shadowBlur = 8;
-    ctx.fillStyle = baselineColor(item.event_type);
-    ctx.globalAlpha = item.event_type === "fireball" ? 0.72 : 0.54;
-    ctx.beginPath();
-    ctx.arc(x, y, radius, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.globalAlpha = 0.92;
-    ctx.strokeStyle = "rgba(255,255,255,0.42)";
-    ctx.lineWidth = 0.8;
-    ctx.stroke();
-  });
+  let renderedBaselines = 0;
+  if (renderMode === "density") {
+    renderedBaselines = drawClusterLayer(ctx, baselines, width, height, (item) => baselineColor(item.event_type), { cellSize: 16 });
+  } else {
+    baselines.forEach((item) => {
+      const x = ((Number(item.longitude) + 180) / 360) * width;
+      const y = ((90 - Number(item.latitude)) / 180) * height;
+      if (x < 0 || x > width || y < 0 || y > height) return;
+      renderedBaselines += 1;
+      const energy = Number(item.metric_primary);
+      const radius = item.event_type === "fireball" && Number.isFinite(energy) ? Math.max(2.4, Math.min(9, Math.sqrt(energy) * 1.1)) : 2.6;
+      ctx.shadowColor = baselineColor(item.event_type);
+      ctx.shadowBlur = 8;
+      ctx.fillStyle = baselineColor(item.event_type);
+      ctx.globalAlpha = item.event_type === "fireball" ? 0.72 : 0.54;
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 0.92;
+      ctx.strokeStyle = "rgba(255,255,255,0.42)";
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+    });
+  }
   ctx.shadowBlur = 0;
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = "source-over";
@@ -896,8 +1245,21 @@ function drawSightingMap() {
   ctx.fillStyle = colors.muted;
   ctx.font = "12px system-ui, sans-serif";
   ctx.fillText("Equirectangular plot: longitude vs latitude. Baselines challenge, not dismiss, sighting reports.", 16, 48);
+  renderMapTimeline(points, baselines);
+  if (els.mapFocusSummary) {
+    const yearMin = Number(els.mapYearMin?.value || 1900);
+    const yearMax = Number(els.mapYearMax?.value || 2026);
+    const topShape = countBy(points.slice(0, 12000), "shape")[0];
+    els.mapFocusSummary.innerHTML = `
+      <div><span>Window</span><strong>${escapeHtml(yearMin)}-${escapeHtml(yearMax)}</strong></div>
+      <div><span>Mode</span><strong>${escapeHtml(renderMode === "density" ? "density" : "raw")}</strong></div>
+      <div><span>Sighting marks</span><strong>${escapeHtml(renderedSightings.toLocaleString())}</strong></div>
+      <div><span>Baseline marks</span><strong>${escapeHtml(renderedBaselines.toLocaleString())}</strong></div>
+      <div><span>Top shape</span><strong>${escapeHtml(topShape?.label || "n/a")}</strong></div>
+    `;
+  }
   if (els.mapCaption) {
-    els.mapCaption.textContent = `${label} match the current filters. Sightings are colored by reported shape; baselines use orange for fireballs and green for FAA UAS reports when coordinates are available.`;
+    els.mapCaption.textContent = `${label} match the current filters. Density mode clusters nearby records for pattern scanning; raw mode shows individual reports. Sightings are colored by reported shape; baselines use orange for fireballs and green for FAA UAS reports.`;
   }
 }
 
@@ -915,12 +1277,16 @@ function switchView(view) {
   els.sightingsPanel.classList.toggle("hidden", view !== "sightings");
   els.baselinesPanel.classList.toggle("hidden", view !== "baselines");
   els.mapPanel.classList.toggle("hidden", view !== "map");
+  els.boardPanel?.classList.toggle("hidden", view !== "board");
   if (view === "sightings" && staticMode && !fullStaticSightingsLoaded) {
     loadStaticSightings();
   }
   if (view === "map") {
     loadMapSightings();
     requestAnimationFrame(drawSightingMap);
+  }
+  if (view === "board") {
+    renderBoard();
   }
 }
 
@@ -997,6 +1363,7 @@ async function selectCase(caseId, shouldRender = true) {
   if (shouldRender) {
     renderCases();
     renderDetail();
+    renderIntel();
     drawGraph();
   }
 }
@@ -1041,7 +1408,10 @@ function renderDetail() {
         <span class="chip">${escapeHtml(detail.files.length)} files</span>
       </div>
       <p>${escapeHtml(item.summary)}</p>
-      <a href="${escapeHtml(item.case_url)}" target="_blank" rel="noreferrer">Open mirrored case page</a>
+      <div class="case-meta">
+        <button class="chip pin-chip" type="button" data-pin-case="${escapeHtml(item.id)}">Pin case</button>
+        <a class="chip amber" href="${escapeHtml(item.case_url)}" target="_blank" rel="noreferrer">Open mirrored case page</a>
+      </div>
     </div>
     <div class="detail-block">
       <h4>Released Files</h4>
@@ -1054,6 +1424,18 @@ function renderDetail() {
   `;
   els.detailContent.querySelectorAll("[data-related-id]").forEach((button) => {
     button.addEventListener("click", () => selectCase(button.dataset.relatedId));
+  });
+  els.detailContent.querySelector("[data-pin-case]")?.addEventListener("click", () => {
+    pinBoardItem({
+      type: "Case",
+      id: item.id,
+      title: item.title,
+      meta: `${item.category || "case"} / ${item.timeline_date || "no date"} / ${detail.files.length} files`,
+      summary: item.summary,
+      url: item.case_url,
+      caseId: item.id,
+      score: Math.min(96, 62 + detail.files.length + Math.min(12, detail.outgoing.length * 2))
+    });
   });
 }
 
@@ -1269,6 +1651,7 @@ function renderAll() {
   renderDetail();
   renderTimeline();
   renderSources();
+  renderBoard();
   switchView(state.activeView);
   requestAnimationFrame(drawGraph);
 }
@@ -1311,13 +1694,41 @@ function bindEvents() {
   els.intelQuery?.addEventListener("keydown", (event) => {
     if (event.key === "Enter") runIntelSearch();
   });
+  els.boardNotes?.addEventListener("input", debounce((event) => {
+    state.board.notes = event.target.value;
+    saveBoard();
+    renderBoard();
+  }, 220));
+  els.copyBriefing?.addEventListener("click", async () => {
+    const briefing = buildBriefing();
+    try {
+      await navigator.clipboard.writeText(briefing);
+      els.copyBriefing.textContent = "Copied";
+      setTimeout(() => { els.copyBriefing.textContent = "Copy Briefing"; }, 1400);
+    } catch {
+      els.briefingPreview.innerHTML = `<span class="field-label">Briefing text</span><pre>${escapeHtml(briefing)}</pre>`;
+    }
+  });
+  els.clearBoard?.addEventListener("click", () => {
+    state.board.items = [];
+    saveBoard();
+    renderBoard();
+  });
   els.mapLayerFilter?.addEventListener("change", () => {
     loadMapSightings();
     drawSightingMap();
   });
-  [els.mapShapeFilter, els.mapYearMin, els.mapYearMax].forEach((control) => {
+  els.mapPlay?.addEventListener("click", toggleMapPlayback);
+  els.mapYearSlider?.addEventListener("input", () => {
+    els.mapYearMax.value = els.mapYearSlider.value;
+    drawSightingMap();
+  });
+  [els.mapShapeFilter, els.mapYearMin, els.mapYearMax, els.mapRenderMode].forEach((control) => {
     control?.addEventListener("input", debounce(drawSightingMap, 120));
     control?.addEventListener("change", debounce(drawSightingMap, 120));
+  });
+  els.mapYearMax?.addEventListener("input", () => {
+    if (els.mapYearSlider) els.mapYearSlider.value = els.mapYearMax.value;
   });
   window.addEventListener("resize", debounce(() => {
     drawGraph();
