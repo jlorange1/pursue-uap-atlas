@@ -238,6 +238,7 @@ button:focus-visible {
 .segmented {
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.25rem;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -267,6 +268,185 @@ button:focus-visible {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
   gap: 0.75rem;
+}
+
+.intel-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+.intel-grid {
+  display: grid;
+  grid-template-columns: minmax(18rem, 0.95fr) minmax(22rem, 1.05fr);
+  gap: 0.75rem;
+}
+
+.intel-hero,
+.intel-search,
+.loop-step,
+.matrix-item,
+.signal-item,
+.intel-result,
+.baseline-item {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #10171c;
+  color: inherit;
+  padding: 0.9rem;
+}
+
+.intel-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 6.5rem;
+  gap: 1rem;
+  align-items: center;
+  background:
+    linear-gradient(135deg, rgba(110, 212, 216, 0.12), rgba(224, 180, 91, 0.08)),
+    #10171c;
+}
+
+.intel-hero h3,
+.section-heading.compact h3,
+.loop-step h4,
+.matrix-item h4,
+.signal-item h4,
+.intel-result h4,
+.baseline-item h3 {
+  margin: 0;
+  color: var(--text);
+  line-height: 1.24;
+}
+
+.intel-hero p,
+.loop-step p,
+.matrix-item p,
+.signal-item p,
+.intel-result p,
+.baseline-item p {
+  margin: 0.45rem 0 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
+.score-ring {
+  display: grid;
+  place-items: center;
+  width: 6rem;
+  aspect-ratio: 1;
+  border: 1px solid rgba(110, 212, 216, 0.38);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at center, #10171c 54%, transparent 55%),
+    conic-gradient(var(--cyan), var(--amber), var(--green), var(--cyan));
+  color: var(--text);
+  font-size: 1.35rem;
+  font-weight: 850;
+  font-variant-numeric: tabular-nums;
+}
+
+.intel-search {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.intel-search label {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.intel-query-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.5rem;
+}
+
+.intel-query-row input {
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #0f1519;
+  color: var(--text);
+  padding: 0.7rem 0.8rem;
+}
+
+.intel-results {
+  display: grid;
+  gap: 0.55rem;
+  max-height: 28rem;
+  overflow: auto;
+}
+
+.intel-result {
+  display: grid;
+  gap: 0.35rem;
+  width: 100%;
+  text-align: left;
+}
+
+.intel-result:hover,
+.related-item:hover,
+.timeline-item.case:hover {
+  border-color: rgba(110, 212, 216, 0.5);
+  background: #142028;
+}
+
+.method-loop,
+.integration-matrix,
+.research-signals {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.section-heading.compact {
+  margin-bottom: 0;
+}
+
+.loop-grid,
+.matrix-grid,
+.signal-grid,
+.baseline-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 0.75rem;
+}
+
+.loop-step {
+  position: relative;
+  min-height: 10.5rem;
+  padding-top: 2.5rem;
+}
+
+.step-index {
+  position: absolute;
+  left: 0.85rem;
+  top: 0.85rem;
+  display: grid;
+  place-items: center;
+  width: 1.8rem;
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background: rgba(110, 212, 216, 0.16);
+  color: var(--cyan);
+  font-weight: 850;
+}
+
+.loop-step strong,
+.matrix-item strong {
+  display: block;
+  margin-top: 0.45rem;
+  color: var(--amber);
+  font-size: 1.15rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.signal-item.high {
+  border-color: rgba(110, 212, 216, 0.46);
+}
+
+.signal-item.medium {
+  border-color: rgba(224, 180, 91, 0.42);
 }
 
 .case-card {
@@ -413,6 +593,7 @@ button:focus-visible {
 .collections-panel,
 .records-panel,
 .sightings-panel,
+.baselines-panel,
 .map-panel,
 .timeline-panel {
   display: grid;
@@ -449,7 +630,8 @@ button:focus-visible {
 
 .collection-grid,
 .record-grid,
-.sighting-grid {
+.sighting-grid,
+.baseline-layout {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
   gap: 0.75rem;
@@ -457,7 +639,7 @@ button:focus-visible {
 
 .map-toolbar {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.75rem;
 }
 
@@ -594,6 +776,16 @@ button:focus-visible {
   background: var(--cyan);
 }
 
+.bar-fill.amber {
+  background: var(--amber);
+}
+
+.detail-block.no-top {
+  margin-top: 0;
+  border-top: 0;
+  padding-top: 0;
+}
+
 .source-list {
   grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
 }
@@ -612,7 +804,8 @@ mark {
 @media (max-width: 1200px) {
   .control-panel,
   .dashboard-grid,
-  .graphics-grid {
+  .graphics-grid,
+  .intel-grid {
     grid-template-columns: 1fr;
   }
 
@@ -640,6 +833,10 @@ mark {
     grid-template-columns: 1fr;
   }
 
+  .intel-hero {
+    grid-template-columns: 1fr;
+  }
+
   .section-heading {
     align-items: flex-start;
     flex-direction: column;
@@ -650,6 +847,10 @@ mark {
   }
 
   .segmented button {
-    flex: 1;
+    flex: 1 1 6.5rem;
+  }
+
+  .intel-query-row {
+    grid-template-columns: 1fr;
   }
 }

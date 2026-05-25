@@ -7,14 +7,18 @@ const state = {
   collections: [],
   officialRecords: [],
   methods: [],
+  researchSignals: [],
+  baselineSummary: null,
+  baselines: [],
   sightingSummary: null,
   sightings: [],
   mapSightings: [],
+  mapBaselines: [],
   timeline: { historical: [], cases: [] },
   graph: { nodes: [], edges: [] },
   selectedCaseId: null,
   selectedCase: null,
-  activeView: "cases",
+  activeView: "intel",
   search: "",
   category: "",
   agency: "",
@@ -29,14 +33,24 @@ const els = {
   categoryFilter: document.querySelector("#categoryFilter"),
   agencyFilter: document.querySelector("#agencyFilter"),
   kindFilter: document.querySelector("#kindFilter"),
+  intelPanel: document.querySelector("#intelPanel"),
+  coverageScore: document.querySelector("#coverageScore"),
+  intelQuery: document.querySelector("#intelQuery"),
+  runIntelQuery: document.querySelector("#runIntelQuery"),
+  intelResults: document.querySelector("#intelResults"),
+  methodLoop: document.querySelector("#methodLoop"),
+  integrationMatrix: document.querySelector("#integrationMatrix"),
+  researchSignals: document.querySelector("#researchSignals"),
   caseList: document.querySelector("#caseList"),
   fileTable: document.querySelector("#fileTable"),
   findingsPanel: document.querySelector("#findingsPanel"),
   collectionsPanel: document.querySelector("#collectionsPanel"),
   recordsPanel: document.querySelector("#recordsPanel"),
   sightingsPanel: document.querySelector("#sightingsPanel"),
+  baselinesPanel: document.querySelector("#baselinesPanel"),
   mapPanel: document.querySelector("#mapPanel"),
   sightingMapCanvas: document.querySelector("#sightingMapCanvas"),
+  mapLayerFilter: document.querySelector("#mapLayerFilter"),
   mapShapeFilter: document.querySelector("#mapShapeFilter"),
   mapYearMin: document.querySelector("#mapYearMin"),
   mapYearMax: document.querySelector("#mapYearMax"),
@@ -137,6 +151,8 @@ function transformStaticData(data) {
   }));
   const collections = normalizeStaticRows(data.source_collections);
   const officialRecords = normalizeStaticRows(data.official_records);
+  const researchSignals = normalizeStaticRows(data.research_signals);
+  const baselines = normalizeStaticRows(data.baseline_event_samples);
   const summary = {
     cases: data.summary.cases,
     files: data.summary.files,
@@ -146,6 +162,8 @@ function transformStaticData(data) {
     collections: data.summary.source_collections || collections.length,
     official_records: data.summary.official_records || officialRecords.length,
     public_sightings: data.summary.public_sightings || data.public_sighting_summary?.total || 0,
+    baseline_events: data.summary.baseline_events || data.baseline_summary?.total || baselines.length,
+    research_signals: data.summary.research_signals || researchSignals.length,
     osint_methods: data.osint_methods?.length || 0,
     byAgency: (data.summary.agencies || []).map((row) => ({ label: row.agency, value: row.count })),
     byKind: countBy(files, "file_kind"),
@@ -154,6 +172,8 @@ function transformStaticData(data) {
     byCollectionType: countBy(collections, "source_type"),
     byReliability: countBy(collections, "reliability"),
     byOfficialRecordType: countBy(officialRecords, "record_type"),
+    baselineTypes: data.baseline_summary?.by_type || countBy(baselines, "event_type"),
+    researchPriorities: countBy(researchSignals, "priority"),
     sightingShapes: data.public_sighting_summary?.by_shape || [],
     sightingCountries: data.public_sighting_summary?.by_country || [],
     yearSpread: countBy(cases.map((item) => ({ year: String(item.timeline_date || "").match(/\b(?:19|20)\d{2}\b/)?.[0] || "" })).filter((item) => item.year), "year")
@@ -174,6 +194,13 @@ function transformStaticData(data) {
     byCountry: data.public_sighting_summary?.by_country || [],
     byYear: data.public_sighting_summary?.by_year || []
   };
+  const baselineSummary = {
+    total: data.baseline_summary?.total || baselines.length,
+    byType: data.baseline_summary?.by_type || countBy(baselines, "event_type"),
+    bySource: data.baseline_summary?.by_source || countBy(baselines, "source_name"),
+    byYear: data.baseline_summary?.by_year || countBy(baselines, "year"),
+    latest: data.baseline_summary?.latest || baselines.slice(0, 24)
+  };
   return {
     summary,
     cases,
@@ -183,6 +210,9 @@ function transformStaticData(data) {
     collections,
     officialRecords,
     methods: data.osint_methods || [],
+    researchSignals,
+    baselineSummary,
+    baselines,
     sightingSummary,
     sightings: data.public_sighting_samples || [],
     timeline,
@@ -192,7 +222,7 @@ function transformStaticData(data) {
 
 async function loadBaseData() {
   try {
-    const [summary, cases, files, findings, sources, collections, officialRecords, methods, sightingSummary, sightings, timeline, graph] = await Promise.all([
+    const [summary, cases, files, findings, sources, collections, officialRecords, methods, researchSignals, baselineSummary, baselines, sightingSummary, sightings, timeline, graph] = await Promise.all([
       getJson("/api/summary"),
       getJson("/api/cases?limit=120"),
       getJson("/api/files?limit=240"),
@@ -201,12 +231,15 @@ async function loadBaseData() {
       getJson("/api/collections?limit=260"),
       getJson("/api/official-records?limit=260"),
       getJson("/api/osint-methods"),
+      getJson("/api/research-signals"),
+      getJson("/api/baselines/summary"),
+      getJson("/api/baselines?limit=260"),
       getJson("/api/sightings/summary"),
       getJson("/api/sightings?limit=80"),
       getJson("/api/timeline"),
       getJson("/api/graph")
     ]);
-    Object.assign(state, { summary, cases, files, findings, sources, collections, officialRecords, methods, sightingSummary, sightings, timeline, graph });
+    Object.assign(state, { summary, cases, files, findings, sources, collections, officialRecords, methods, researchSignals, baselineSummary, baselines, sightingSummary, sightings, timeline, graph });
   } catch (error) {
     staticMode = true;
     staticData = await getJson("data/uap_findings.json");
@@ -231,9 +264,11 @@ function renderStats() {
     stat("Collections", s.collections),
     stat("Official records", s.official_records || 0),
     stat("Public sightings", s.public_sightings),
+    stat("Baselines", s.baseline_events || 0),
+    stat("Research signals", s.research_signals || 0),
     stat("Cross refs", s.cross_refs)
   ].join("");
-  els.snapshotStatus.textContent = `${s.cases} case groups, ${s.files} files, ${s.collections} collections, ${s.official_records || 0} official records, ${s.public_sightings} public sightings`;
+  els.snapshotStatus.textContent = `${s.cases} case groups, ${s.files} files, ${s.collections} collections, ${s.official_records || 0} official records, ${s.public_sightings} public sightings, ${s.baseline_events || 0} baseline events`;
 }
 
 function fillSelect(select, rows, allLabel) {
@@ -454,6 +489,182 @@ function renderSightings() {
   `;
 }
 
+function priorityRank(value) {
+  return { high: 0, medium: 1, low: 2 }[String(value || "").toLowerCase()] ?? 3;
+}
+
+function atlasScore() {
+  const s = state.summary || {};
+  const sourceScore = Math.min(18, Math.round((s.collections || 0) / 9));
+  const officialScore = Math.min(18, Math.round((s.official_records || 0) / 7));
+  const baselineScore = s.baseline_events ? 16 : 0;
+  const sightingScore = Math.min(16, Math.round((s.public_sightings || 0) / 6000));
+  const graphScore = Math.min(14, Math.round((s.cross_refs || 0) / 30));
+  const signalScore = Math.min(12, (s.research_signals || 0) * 2);
+  return Math.min(99, 21 + sourceScore + officialScore + baselineScore + sightingScore + graphScore + signalScore);
+}
+
+function renderIntel() {
+  const s = state.summary || {};
+  if (els.coverageScore) els.coverageScore.textContent = `${atlasScore()}%`;
+  const loop = [
+    ["Collect", `${(s.sources || 0) + (s.collections || 0)} source records`, "Official releases, source hubs, public indexes, and archived metadata."],
+    ["Normalize", `${(s.cases || 0) + (s.files || 0)} PURSUE entities`, "Cases, files, agencies, dates, topics, and source links are structured locally."],
+    ["Correlate", `${s.cross_refs || 0} graph edges`, "Shared dates, agencies, locations, release tranches, and text terms produce navigable leads."],
+    ["Challenge", `${s.baseline_events || 0} baselines`, "NASA fireballs and FAA UAS reports give natural and human-made comparison layers."],
+    ["Queue", `${s.research_signals || 0} signals`, "Generated leads preserve confidence, evidence references, and next actions."]
+  ];
+  els.methodLoop.innerHTML = `
+    <div class="section-heading compact"><div><p class="eyebrow">Recursive research methodology</p><h3>Collect → normalize → correlate → challenge → queue</h3></div></div>
+    <div class="loop-grid">
+      ${loop.map(([title, metric, body], index) => `
+        <article class="loop-step">
+          <span class="step-index">${index + 1}</span>
+          <h4>${escapeHtml(title)}</h4>
+          <strong>${escapeHtml(metric)}</strong>
+          <p>${escapeHtml(body)}</p>
+        </article>
+      `).join("")}
+    </div>
+  `;
+  const matrix = [
+    ["Official Releases", `${s.files || 0} files`, "WAR.GOV/PURSUE, AARO, ODNI, NASA, NARA, Congress", "High provenance"],
+    ["Archival Metadata", `${s.official_records || 0} records`, "NARA catalog exports and linked bulk collections", "Rolling coverage"],
+    ["Public Reports", `${s.public_sightings || 0} sightings`, "Geocoded civilian reports for lead discovery", "Bias-heavy"],
+    ["Baselines", `${s.baseline_events || 0} events`, "NASA fireballs and FAA UAS/drone reports", "Challenge layer"],
+    ["OSINT Methods", `${s.osint_methods || 0} notes`, "Chain of custody, sensor context, parallax, satellites, weather", "Analyst workflow"]
+  ];
+  els.integrationMatrix.innerHTML = `
+    <div class="section-heading compact"><div><p class="eyebrow">Smart integration matrix</p><h3>Evidence classes stay separate but searchable</h3></div></div>
+    <div class="matrix-grid">
+      ${matrix.map(([title, metric, body, status]) => `
+        <article class="matrix-item">
+          <span class="chip cyan">${escapeHtml(status)}</span>
+          <h4>${escapeHtml(title)}</h4>
+          <strong>${escapeHtml(metric)}</strong>
+          <p>${escapeHtml(body)}</p>
+        </article>
+      `).join("")}
+    </div>
+  `;
+  const signals = [...state.researchSignals].sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority));
+  els.researchSignals.innerHTML = `
+    <div class="section-heading compact"><div><p class="eyebrow">Priority intelligence queue</p><h3>What deserves attention next</h3></div></div>
+    <div class="signal-grid">
+      ${signals.map((item) => `
+        <article class="signal-item ${escapeHtml(item.priority || "")}">
+          <div class="case-meta">
+            <span class="chip cyan">${escapeHtml(item.signal_type || "signal")}</span>
+            <span class="chip amber">${escapeHtml(item.priority || "priority")}</span>
+            <span class="chip">${escapeHtml(item.confidence || "confidence")} confidence</span>
+          </div>
+          <h4>${escapeHtml(item.title)}</h4>
+          <p>${escapeHtml(item.summary)}</p>
+          <p><span class="field-label">Next action</span>${escapeHtml(item.next_step || "Review source evidence.")}</p>
+        </article>
+      `).join("")}
+    </div>
+  `;
+  if (!els.intelResults.innerHTML) {
+    els.intelResults.innerHTML = `<p class="caption">Try a phrase to rank cases, files, official records, sources, sightings, and baseline events from the local snapshot.</p>`;
+  }
+}
+
+function searchableItems() {
+  return [
+    ...state.cases.map((item) => ({ type: "Case", title: item.title, body: `${item.summary} ${item.category} ${item.timeline_date} ${JSON.stringify(item.topics)}`, meta: `${item.category || "case"} / ${item.timeline_date || "no date"}`, caseId: item.id })),
+    ...state.files.map((item) => ({ type: "File", title: item.title, body: `${item.description} ${item.official_note} ${item.agency} ${item.incident_location} ${item.case_title}`, meta: `${item.file_kind || "file"} / ${item.agency || "unknown"}`, caseId: item.case_id })),
+    ...state.officialRecords.map((item) => ({ type: "Official record", title: item.title, body: `${item.creator} ${item.summary} ${item.subjects} ${item.media_types}`, meta: `${item.source_name || "official"} / ${item.record_type || "record"}`, url: item.catalog_url || item.metadata_url })),
+    ...state.collections.map((item) => ({ type: "Source", title: item.title, body: `${item.source_name} ${item.source_type} ${item.reliability} ${item.summary} ${JSON.stringify(item.tags)}`, meta: `${item.reliability || "source"} / ${item.source_name || ""}`, url: item.url })),
+    ...state.sightings.slice(0, 800).map((item) => ({ type: "Public sighting", title: [item.city, item.state, item.country].filter(Boolean).join(", ") || "Public sighting", body: `${item.shape} ${item.year} ${item.summary}`, meta: `${item.shape || "unknown"} / ${item.year || "no year"}` })),
+    ...state.baselines.map((item) => ({ type: "Baseline", title: item.event_type === "fireball" ? `NASA fireball ${item.occurred}` : `${item.city || "FAA"} UAS report ${item.occurred}`, body: `${item.source_name} ${item.event_type} ${item.summary} ${item.city} ${item.state} ${item.country}`, meta: `${item.event_type || "baseline"} / ${item.source_name || ""}`, url: item.source_url }))
+  ];
+}
+
+function runIntelSearch() {
+  const query = (els.intelQuery?.value || state.search || "").trim().toLowerCase();
+  if (!query) {
+    els.intelResults.innerHTML = `<p class="caption">Type a phrase to rank local records.</p>`;
+    return;
+  }
+  const tokens = query.split(/[^a-z0-9]+/i).filter((token) => token.length > 1);
+  const ranked = searchableItems().map((item) => {
+    const haystack = `${item.title} ${item.body} ${item.meta}`.toLowerCase();
+    const score = tokens.reduce((sum, token) => sum + (haystack.includes(token) ? token.length : 0), 0) + (haystack.includes(query) ? 12 : 0);
+    return { ...item, score };
+  }).filter((item) => item.score > 0).sort((a, b) => b.score - a.score).slice(0, 10);
+  els.intelResults.innerHTML = ranked.length ? ranked.map((item) => `
+    <button class="intel-result" type="button" ${item.caseId ? `data-intel-case="${escapeHtml(item.caseId)}"` : ""} ${item.url ? `data-intel-url="${escapeHtml(item.url)}"` : ""}>
+      <span class="chip cyan">${escapeHtml(item.type)}</span>
+      <h4>${escapeHtml(item.title)}</h4>
+      <p>${escapeHtml(clampText(item.body, 150))}</p>
+      <span class="field-label">${escapeHtml(item.meta)} / match ${escapeHtml(item.score)}</span>
+    </button>
+  `).join("") : `<p class="caption">No local matches. Try a broader phrase or switch to the global search box.</p>`;
+  els.intelResults.querySelectorAll("[data-intel-case]").forEach((button) => {
+    button.addEventListener("click", () => selectCase(button.dataset.intelCase));
+  });
+  els.intelResults.querySelectorAll("[data-intel-url]").forEach((button) => {
+    button.addEventListener("click", () => window.open(button.dataset.intelUrl, "_blank", "noreferrer"));
+  });
+}
+
+function renderBaselines() {
+  const q = state.search.toLowerCase();
+  const items = state.baselines.filter((item) => {
+    return !q || [item.event_type, item.source_name, item.occurred, item.city, item.state, item.country, item.summary]
+      .join(" ")
+      .toLowerCase()
+      .includes(q);
+  });
+  const typeMax = Math.max(...(state.baselineSummary?.byType || []).map((row) => row.value), 1);
+  const sourceMax = Math.max(...(state.baselineSummary?.bySource || []).map((row) => row.value), 1);
+  const typeChart = (state.baselineSummary?.byType || []).map((row) => `
+    <div class="bar">
+      <span>${escapeHtml(row.label)}</span>
+      <span class="bar-track"><span class="bar-fill" style="width:${Math.max(4, row.value / typeMax * 100)}%"></span></span>
+      <span>${escapeHtml(row.value)}</span>
+    </div>
+  `).join("");
+  const sourceChart = (state.baselineSummary?.bySource || []).map((row) => `
+    <div class="bar">
+      <span>${escapeHtml(row.label)}</span>
+      <span class="bar-track"><span class="bar-fill amber" style="width:${Math.max(4, row.value / sourceMax * 100)}%"></span></span>
+      <span>${escapeHtml(row.value)}</span>
+    </div>
+  `).join("");
+  els.baselinesPanel.innerHTML = `
+    <div class="baseline-layout">
+      <div class="detail-block no-top">
+        <h4>Baseline types</h4>
+        <div class="bar-chart">${typeChart}</div>
+      </div>
+      <div class="detail-block no-top">
+        <h4>Baseline sources</h4>
+        <div class="bar-chart">${sourceChart}</div>
+      </div>
+    </div>
+    <div class="baseline-grid">
+      ${items.slice(0, 120).map((item) => `
+        <article class="baseline-item">
+          <div class="case-meta">
+            <span class="chip cyan">${escapeHtml(item.event_type || "baseline")}</span>
+            <span class="chip amber">${escapeHtml(item.occurred || item.year || "no date")}</span>
+            <span class="chip">${escapeHtml(item.source_name || "source")}</span>
+          </div>
+          <h3>${escapeHtml(item.event_type === "fireball" ? "NASA/JPL fireball event" : [item.city, item.state, item.country].filter(Boolean).join(", ") || "FAA UAS report")}</h3>
+          <p>${escapeHtml(clampText(item.summary, 230))}</p>
+          <div class="case-meta">
+            ${item.metric_primary ? `<span class="chip">${escapeHtml(item.metric_primary_label)}: ${escapeHtml(item.metric_primary)}</span>` : ""}
+            ${item.latitude ? `<span class="chip">${Number(item.latitude).toFixed(2)}, ${Number(item.longitude).toFixed(2)}</span>` : ""}
+            ${item.source_url ? `<a class="chip amber" href="${escapeHtml(item.source_url)}" target="_blank" rel="noreferrer">Source</a>` : ""}
+          </div>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
 function shapeColor(shape) {
   const value = String(shape || "").toLowerCase();
   if (value.includes("triangle")) return "#e0b45b";
@@ -482,6 +693,30 @@ function mapVisibleSightings() {
       .toLowerCase()
       .includes(q);
   });
+}
+
+function mapVisibleBaselines() {
+  const q = state.search.toLowerCase();
+  const minYear = Number(els.mapYearMin?.value || 1900);
+  const maxYear = Number(els.mapYearMax?.value || 2030);
+  const source = state.mapBaselines.length ? state.mapBaselines : state.baselines;
+  return source.filter((item) => {
+    const lat = Number(item.latitude);
+    const lon = Number(item.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false;
+    if (Number.isFinite(minYear) && item.year && item.year < minYear) return false;
+    if (Number.isFinite(maxYear) && item.year && item.year > maxYear) return false;
+    return !q || [item.event_type, item.source_name, item.city, item.state, item.country, item.year, item.summary]
+      .join(" ")
+      .toLowerCase()
+      .includes(q);
+  });
+}
+
+function baselineColor(type) {
+  if (String(type).includes("fireball")) return "#f08f5f";
+  if (String(type).includes("uas")) return "#b8d86e";
+  return colors.amber;
 }
 
 function drawSightingMap() {
@@ -526,7 +761,9 @@ function drawSightingMap() {
     ctx.fill();
   });
 
-  const points = mapVisibleSightings();
+  const layer = els.mapLayerFilter?.value || "sightings";
+  const points = layer === "baselines" ? [] : mapVisibleSightings();
+  const baselines = layer === "sightings" ? [] : mapVisibleBaselines();
   const maxPoints = Math.min(points.length, 50000);
   ctx.globalCompositeOperation = "lighter";
   for (let i = 0; i < maxPoints; i++) {
@@ -540,16 +777,37 @@ function drawSightingMap() {
     ctx.arc(x, y, 1.35, 0, Math.PI * 2);
     ctx.fill();
   }
+  baselines.forEach((item) => {
+    const x = ((Number(item.longitude) + 180) / 360) * width;
+    const y = ((90 - Number(item.latitude)) / 180) * height;
+    if (x < 0 || x > width || y < 0 || y > height) return;
+    const energy = Number(item.metric_primary);
+    const radius = item.event_type === "fireball" && Number.isFinite(energy) ? Math.max(2.4, Math.min(9, Math.sqrt(energy) * 1.1)) : 2.6;
+    ctx.fillStyle = baselineColor(item.event_type);
+    ctx.globalAlpha = item.event_type === "fireball" ? 0.72 : 0.54;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 0.92;
+    ctx.strokeStyle = "rgba(255,255,255,0.42)";
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+  });
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = "source-over";
   ctx.fillStyle = colors.text;
   ctx.font = "700 14px system-ui, sans-serif";
-  ctx.fillText(`${points.length.toLocaleString()} mapped public reports`, 16, 28);
+  const label = layer === "baselines"
+    ? `${baselines.length.toLocaleString()} mapped baseline events`
+    : layer === "combined"
+      ? `${points.length.toLocaleString()} reports + ${baselines.length.toLocaleString()} baselines`
+      : `${points.length.toLocaleString()} mapped public reports`;
+  ctx.fillText(label, 16, 28);
   ctx.fillStyle = colors.muted;
   ctx.font = "12px system-ui, sans-serif";
-  ctx.fillText("Equirectangular plot: longitude vs latitude. Not all reports are validated events.", 16, 48);
+  ctx.fillText("Equirectangular plot: longitude vs latitude. Baselines challenge, not dismiss, sighting reports.", 16, 48);
   if (els.mapCaption) {
-    els.mapCaption.textContent = `${points.length.toLocaleString()} reports match the current filters. Colors represent reported shape/type.`;
+    els.mapCaption.textContent = `${label} match the current filters. Sightings are colored by reported shape; baselines use orange for fireballs and green for FAA UAS reports when coordinates are available.`;
   }
 }
 
@@ -558,12 +816,14 @@ function switchView(view) {
   document.querySelectorAll("[data-view]").forEach((button) => {
     button.classList.toggle("active", button.dataset.view === view);
   });
+  els.intelPanel.classList.toggle("hidden", view !== "intel");
   els.caseList.classList.toggle("hidden", view !== "cases");
   els.fileTable.classList.toggle("hidden", view !== "files");
   els.findingsPanel.classList.toggle("hidden", view !== "findings");
   els.collectionsPanel.classList.toggle("hidden", view !== "collections");
   els.recordsPanel.classList.toggle("hidden", view !== "records");
   els.sightingsPanel.classList.toggle("hidden", view !== "sightings");
+  els.baselinesPanel.classList.toggle("hidden", view !== "baselines");
   els.mapPanel.classList.toggle("hidden", view !== "map");
   if (view === "sightings" && staticMode && !fullStaticSightingsLoaded) {
     loadStaticSightings();
@@ -585,12 +845,19 @@ async function loadStaticSightings() {
 }
 
 async function loadMapSightings() {
-  if (state.mapSightings.length) return;
+  const layer = els.mapLayerFilter?.value || "sightings";
   try {
-    state.mapSightings = staticMode
-      ? await getJson("data/public_sightings_lite.json")
-      : await getJson("/api/sightings/map");
-    if (staticMode) state.sightings = state.mapSightings;
+    if (layer !== "baselines" && !state.mapSightings.length) {
+      state.mapSightings = staticMode
+        ? await getJson("data/public_sightings_lite.json")
+        : await getJson("/api/sightings/map");
+      if (staticMode) state.sightings = state.mapSightings;
+    }
+    if (layer !== "sightings" && !state.mapBaselines.length) {
+      state.mapBaselines = staticMode
+        ? state.baselines
+        : await getJson("/api/baselines/map");
+    }
     drawSightingMap();
   } catch (error) {
     console.warn("Map sighting data could not be loaded", error);
@@ -889,12 +1156,14 @@ function setupGraphInteraction() {
 function renderAll() {
   renderStats();
   renderFilters();
+  renderIntel();
   renderCases();
   renderFiles();
   renderFindings();
   renderCollections();
   renderOfficialRecords();
   renderSightings();
+  renderBaselines();
   renderCharts();
   renderDetail();
   renderTimeline();
@@ -919,6 +1188,7 @@ function bindEvents() {
     renderCollections();
     renderOfficialRecords();
     renderSightings();
+    renderBaselines();
     drawSightingMap();
   }));
   els.categoryFilter.addEventListener("change", (event) => {
@@ -935,6 +1205,14 @@ function bindEvents() {
   });
   document.querySelectorAll("[data-view]").forEach((button) => {
     button.addEventListener("click", () => switchView(button.dataset.view));
+  });
+  els.runIntelQuery?.addEventListener("click", runIntelSearch);
+  els.intelQuery?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") runIntelSearch();
+  });
+  els.mapLayerFilter?.addEventListener("change", () => {
+    loadMapSightings();
+    drawSightingMap();
   });
   [els.mapShapeFilter, els.mapYearMin, els.mapYearMax].forEach((control) => {
     control?.addEventListener("input", debounce(drawSightingMap, 120));

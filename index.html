@@ -57,23 +57,57 @@
               <h2>Browse and compare</h2>
             </div>
             <div class="segmented" role="tablist" aria-label="Primary view">
-              <button class="active" data-view="cases" type="button">Cases</button>
+              <button class="active" data-view="intel" type="button">Intel</button>
+              <button data-view="cases" type="button">Cases</button>
               <button data-view="files" type="button">Files</button>
               <button data-view="findings" type="button">Findings</button>
               <button data-view="collections" type="button">Sources</button>
               <button data-view="records" type="button">Records</button>
               <button data-view="sightings" type="button">Sightings</button>
+              <button data-view="baselines" type="button">Baselines</button>
               <button data-view="map" type="button">Map</button>
             </div>
           </div>
-          <div id="caseList" class="case-list" aria-live="polite"></div>
+          <div id="intelPanel" class="intel-panel" aria-live="polite">
+            <div class="intel-grid">
+              <section class="intel-hero">
+                <div>
+                  <p class="eyebrow">Research command center</p>
+                  <h3>Integrated UAP intelligence workspace</h3>
+                  <p>Official releases, archival metadata, public sightings, natural baselines, and OSINT methods stay separated by evidence class while still being cross-queryable.</p>
+                </div>
+                <div class="score-ring" id="coverageScore" aria-label="Atlas coverage score">--</div>
+              </section>
+              <section class="intel-search">
+                <label for="intelQuery">Ask the local database</label>
+                <div class="intel-query-row">
+                  <input id="intelQuery" type="search" placeholder="Compare lights over California, NASA, drones, Blue Book">
+                  <button id="runIntelQuery" class="ghost-button" type="button">Analyze</button>
+                </div>
+                <div id="intelResults" class="intel-results"></div>
+              </section>
+            </div>
+            <div id="methodLoop" class="method-loop"></div>
+            <div id="integrationMatrix" class="integration-matrix"></div>
+            <div id="researchSignals" class="research-signals"></div>
+          </div>
+          <div id="caseList" class="case-list hidden" aria-live="polite"></div>
           <div id="fileTable" class="file-table hidden" aria-live="polite"></div>
           <div id="findingsPanel" class="findings-panel hidden" aria-live="polite"></div>
           <div id="collectionsPanel" class="collections-panel hidden" aria-live="polite"></div>
           <div id="recordsPanel" class="records-panel hidden" aria-live="polite"></div>
           <div id="sightingsPanel" class="sightings-panel hidden" aria-live="polite"></div>
+          <div id="baselinesPanel" class="baselines-panel hidden" aria-live="polite"></div>
           <div id="mapPanel" class="map-panel hidden" aria-live="polite">
             <div class="map-toolbar">
+              <label>
+                Map layer
+                <select id="mapLayerFilter">
+                  <option value="sightings">Public sightings</option>
+                  <option value="combined">Sightings + baselines</option>
+                  <option value="baselines">Baselines only</option>
+                </select>
+              </label>
               <label>
                 Map type
                 <select id="mapShapeFilter">
