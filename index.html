@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PURSUE UAP Atlas</title>
+    <meta name="description" content="Local interactive research dashboard for public UAP and UFO release records.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to main content</a>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Local database</p>
+        <h1>PURSUE UAP Atlas</h1>
+      </div>
+      <div class="source-strip" aria-label="Source snapshot">
+        <span id="snapshotStatus">Loading source records...</span>
+        <a href="https://www.war.gov/UFO/" target="_blank" rel="noreferrer">WAR.GOV/UFO</a>
+      </div>
+    </header>
+
+    <main id="main" class="app-shell">
+      <section class="control-panel" aria-label="Database controls">
+        <div class="search-row">
+          <label for="searchInput">Search records</label>
+          <input id="searchInput" type="search" placeholder="Try Syria, balloon, NASA, 1948, infrared">
+        </div>
+        <div class="filters">
+          <label>
+            Category
+            <select id="categoryFilter">
+              <option value="">All categories</option>
+            </select>
+          </label>
+          <label>
+            Agency
+            <select id="agencyFilter">
+              <option value="">All agencies</option>
+            </select>
+          </label>
+          <label>
+            File type
+            <select id="kindFilter">
+              <option value="">All types</option>
+            </select>
+          </label>
+        </div>
+        <div class="stats-grid" id="statsGrid" aria-live="polite"></div>
+      </section>
+
+      <section class="dashboard-grid">
+        <div class="workbench">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Case groups</p>
+              <h2>Browse and compare</h2>
+            </div>
+            <div class="segmented" role="tablist" aria-label="Primary view">
+              <button class="active" data-view="cases" type="button">Cases</button>
+              <button data-view="files" type="button">Files</button>
+              <button data-view="findings" type="button">Findings</button>
+              <button data-view="collections" type="button">Sources</button>
+              <button data-view="sightings" type="button">Sightings</button>
+            </div>
+          </div>
+          <div id="caseList" class="case-list" aria-live="polite"></div>
+          <div id="fileTable" class="file-table hidden" aria-live="polite"></div>
+          <div id="findingsPanel" class="findings-panel hidden" aria-live="polite"></div>
+          <div id="collectionsPanel" class="collections-panel hidden" aria-live="polite"></div>
+          <div id="sightingsPanel" class="sightings-panel hidden" aria-live="polite"></div>
+        </div>
+
+        <aside class="detail-panel" aria-label="Selected record detail">
+          <div id="detailEmpty" class="empty-state">
+            <p class="eyebrow">Dossier</p>
+            <h2>Select a case</h2>
+            <p>Choose a record to inspect summaries, released files, source links, and generated cross-references.</p>
+          </div>
+          <div id="detailContent" class="hidden"></div>
+        </aside>
+      </section>
+
+      <section class="graphics-grid" aria-label="Research graphics">
+        <div class="viz-panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Cross-reference graph</p>
+              <h2>Shared source signals</h2>
+            </div>
+            <button id="resetGraph" class="ghost-button" type="button">Reset</button>
+          </div>
+          <canvas id="networkCanvas" width="900" height="520" aria-label="Network graph of related UAP case groups"></canvas>
+          <p class="caption">Edges are generated from shared year, agency, location, release, category, and text terms. They are navigation clues, not evidentiary conclusions.</p>
+        </div>
+
+        <div class="viz-panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Timeline</p>
+              <h2>Historical reference</h2>
+            </div>
+          </div>
+          <div id="timelinePanel" class="timeline-panel"></div>
+        </div>
+      </section>
+
+      <section class="source-panel">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Audit trail</p>
+            <h2>Source notes</h2>
+          </div>
+        </div>
+        <div id="sourceList" class="source-list"></div>
+      </section>
+    </main>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
