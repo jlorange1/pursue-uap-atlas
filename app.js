@@ -1,5 +1,5 @@
 const validViews = new Set(["intel", "cases", "files", "findings", "collections", "records", "sightings", "baselines", "map", "board"]);
-const initialView = validViews.has(window.location.hash.slice(1)) ? window.location.hash.slice(1) : "intel";
+const initialView = validViews.has(window.location.hash.slice(1)) ? window.location.hash.slice(1) : "map";
 
 const state = {
   summary: null,
