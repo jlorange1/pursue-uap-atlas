@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>PURSUE UAP Atlas</title>
     <meta name="description" content="Local interactive research dashboard for public UAP and UFO release records.">
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles.css?v=map-ops-20260525-2">
   </head>
   <body>
     <div class="signal-backdrop" aria-hidden="true">
@@ -106,6 +106,17 @@
           <div id="sightingsPanel" class="sightings-panel hidden" aria-live="polite"></div>
           <div id="baselinesPanel" class="baselines-panel hidden" aria-live="polite"></div>
           <div id="mapPanel" class="map-panel hidden" aria-live="polite">
+            <div class="map-command-header">
+              <div>
+                <p class="eyebrow">Vector basemap / operations layer</p>
+                <h3>Global UAP Operations Map</h3>
+              </div>
+              <div class="map-status-chips" aria-label="Map capabilities">
+                <span>180 country boundaries</span>
+                <span>Density clusters</span>
+                <span>Hover intelligence</span>
+              </div>
+            </div>
             <div class="map-toolbar">
               <label>
                 Map layer
@@ -224,6 +235,6 @@
       </section>
     </main>
 
-    <script type="module" src="app.js"></script>
+    <script type="module" src="app.js?v=map-ops-20260525-2"></script>
   </body>
 </html>

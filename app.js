@@ -1,3 +1,6 @@
+const validViews = new Set(["intel", "cases", "files", "findings", "collections", "records", "sightings", "baselines", "map", "board"]);
+const initialView = validViews.has(window.location.hash.slice(1)) ? window.location.hash.slice(1) : "intel";
+
 const state = {
   summary: null,
   cases: [],
@@ -22,7 +25,7 @@ const state = {
   graph: { nodes: [], edges: [] },
   selectedCaseId: null,
   selectedCase: null,
-  activeView: "intel",
+  activeView: initialView,
   search: "",
   category: "",
   agency: "",
@@ -1359,6 +1362,11 @@ function drawSightingMap() {
   ctx.fillStyle = colors.muted;
   ctx.font = "12px system-ui, sans-serif";
   ctx.fillText("Vector basemap: country boundaries, clustered reports, and baseline challenge layers.", 16, 48);
+  ctx.textAlign = "right";
+  ctx.fillStyle = colors.green;
+  ctx.font = "800 12px system-ui, sans-serif";
+  ctx.fillText("VECTOR BASEMAP ONLINE", width - 16, 28);
+  ctx.textAlign = "left";
   renderMapTimeline(points, baselines);
   if (els.mapFocusSummary) {
     const yearMin = Number(els.mapYearMin?.value || 1900);
@@ -1378,7 +1386,11 @@ function drawSightingMap() {
 }
 
 function switchView(view) {
+  if (!validViews.has(view)) return;
   state.activeView = view;
+  if (window.location.hash !== `#${view}`) {
+    window.history.replaceState(null, "", `#${view}`);
+  }
   document.querySelectorAll("[data-view]").forEach((button) => {
     button.classList.toggle("active", button.dataset.view === view);
   });
@@ -1837,6 +1849,10 @@ function bindEvents() {
   });
   document.querySelectorAll("[data-view]").forEach((button) => {
     button.addEventListener("click", () => switchView(button.dataset.view));
+  });
+  window.addEventListener("hashchange", () => {
+    const hashView = window.location.hash.slice(1);
+    if (validViews.has(hashView)) switchView(hashView);
   });
   els.runIntelQuery?.addEventListener("click", runIntelSearch);
   els.intelQuery?.addEventListener("keydown", (event) => {
