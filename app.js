@@ -5,9 +5,11 @@ const state = {
   findings: [],
   sources: [],
   collections: [],
+  officialRecords: [],
   methods: [],
   sightingSummary: null,
   sightings: [],
+  mapSightings: [],
   timeline: { historical: [], cases: [] },
   graph: { nodes: [], edges: [] },
   selectedCaseId: null,
@@ -31,7 +33,14 @@ const els = {
   fileTable: document.querySelector("#fileTable"),
   findingsPanel: document.querySelector("#findingsPanel"),
   collectionsPanel: document.querySelector("#collectionsPanel"),
+  recordsPanel: document.querySelector("#recordsPanel"),
   sightingsPanel: document.querySelector("#sightingsPanel"),
+  mapPanel: document.querySelector("#mapPanel"),
+  sightingMapCanvas: document.querySelector("#sightingMapCanvas"),
+  mapShapeFilter: document.querySelector("#mapShapeFilter"),
+  mapYearMin: document.querySelector("#mapYearMin"),
+  mapYearMax: document.querySelector("#mapYearMax"),
+  mapCaption: document.querySelector("#mapCaption"),
   detailEmpty: document.querySelector("#detailEmpty"),
   detailContent: document.querySelector("#detailContent"),
   timelinePanel: document.querySelector("#timelinePanel"),
@@ -127,6 +136,7 @@ function transformStaticData(data) {
     case_date: cases.find((item) => item.id === file.case_id)?.timeline_date || ""
   }));
   const collections = normalizeStaticRows(data.source_collections);
+  const officialRecords = normalizeStaticRows(data.official_records);
   const summary = {
     cases: data.summary.cases,
     files: data.summary.files,
@@ -134,6 +144,7 @@ function transformStaticData(data) {
     cross_refs: data.cross_refs.length,
     sources: data.sources.length,
     collections: data.summary.source_collections || collections.length,
+    official_records: data.summary.official_records || officialRecords.length,
     public_sightings: data.summary.public_sightings || data.public_sighting_summary?.total || 0,
     osint_methods: data.osint_methods?.length || 0,
     byAgency: (data.summary.agencies || []).map((row) => ({ label: row.agency, value: row.count })),
@@ -142,6 +153,7 @@ function transformStaticData(data) {
     byRelease: (data.summary.releases || []).map((row) => ({ label: row.release_label, value: row.count })),
     byCollectionType: countBy(collections, "source_type"),
     byReliability: countBy(collections, "reliability"),
+    byOfficialRecordType: countBy(officialRecords, "record_type"),
     sightingShapes: data.public_sighting_summary?.by_shape || [],
     sightingCountries: data.public_sighting_summary?.by_country || [],
     yearSpread: countBy(cases.map((item) => ({ year: String(item.timeline_date || "").match(/\b(?:19|20)\d{2}\b/)?.[0] || "" })).filter((item) => item.year), "year")
@@ -169,6 +181,7 @@ function transformStaticData(data) {
     findings: data.findings || [],
     sources: data.sources || [],
     collections,
+    officialRecords,
     methods: data.osint_methods || [],
     sightingSummary,
     sightings: data.public_sighting_samples || [],
@@ -179,20 +192,21 @@ function transformStaticData(data) {
 
 async function loadBaseData() {
   try {
-    const [summary, cases, files, findings, sources, collections, methods, sightingSummary, sightings, timeline, graph] = await Promise.all([
+    const [summary, cases, files, findings, sources, collections, officialRecords, methods, sightingSummary, sightings, timeline, graph] = await Promise.all([
       getJson("/api/summary"),
       getJson("/api/cases?limit=120"),
       getJson("/api/files?limit=240"),
       getJson("/api/findings"),
       getJson("/api/sources"),
       getJson("/api/collections?limit=260"),
+      getJson("/api/official-records?limit=260"),
       getJson("/api/osint-methods"),
       getJson("/api/sightings/summary"),
       getJson("/api/sightings?limit=80"),
       getJson("/api/timeline"),
       getJson("/api/graph")
     ]);
-    Object.assign(state, { summary, cases, files, findings, sources, collections, methods, sightingSummary, sightings, timeline, graph });
+    Object.assign(state, { summary, cases, files, findings, sources, collections, officialRecords, methods, sightingSummary, sightings, timeline, graph });
   } catch (error) {
     staticMode = true;
     staticData = await getJson("data/uap_findings.json");
@@ -215,10 +229,11 @@ function renderStats() {
     stat("Videos", s.byKind.find((x) => /video/i.test(x.label))?.value || 0),
     stat("PDFs", s.byKind.find((x) => /pdf/i.test(x.label))?.value || 0),
     stat("Collections", s.collections),
+    stat("Official records", s.official_records || 0),
     stat("Public sightings", s.public_sightings),
     stat("Cross refs", s.cross_refs)
   ].join("");
-  els.snapshotStatus.textContent = `${s.cases} case groups, ${s.files} files, ${s.collections} source collections, ${s.public_sightings} public sightings`;
+  els.snapshotStatus.textContent = `${s.cases} case groups, ${s.files} files, ${s.collections} collections, ${s.official_records || 0} official records, ${s.public_sightings} public sightings`;
 }
 
 function fillSelect(select, rows, allLabel) {
@@ -234,6 +249,7 @@ function renderFilters() {
   fillSelect(els.categoryFilter, state.summary.byCategory, "All categories");
   fillSelect(els.agencyFilter, state.summary.byAgency, "All agencies");
   fillSelect(els.kindFilter, state.summary.byKind, "All types");
+  fillSelect(els.mapShapeFilter, state.summary.sightingShapes || [], "All reported shapes");
 }
 
 function visibleCases() {
@@ -369,6 +385,37 @@ function renderCollections() {
   `;
 }
 
+function renderOfficialRecords() {
+  const q = state.search.toLowerCase();
+  const items = state.officialRecords.filter((item) => {
+    return !q || [item.title, item.creator, item.record_type, item.summary, item.subjects, item.media_types]
+      .join(" ")
+      .toLowerCase()
+      .includes(q);
+  });
+  els.recordsPanel.innerHTML = `
+    <div class="record-grid">
+      ${items.map((item) => `
+        <article class="record-item">
+          <div class="case-meta">
+            <span class="chip cyan">${escapeHtml(item.source_name || "official")}</span>
+            <span class="chip amber">${escapeHtml(item.record_type || "record")}</span>
+            ${item.start_date ? `<span class="chip">${escapeHtml(item.start_date)}${item.end_date ? ` - ${escapeHtml(item.end_date)}` : ""}</span>` : ""}
+          </div>
+          <h3>${escapeHtml(item.title)}</h3>
+          <p>${escapeHtml(clampText(item.creator || item.summary || item.media_types, 240))}</p>
+          <div class="case-meta">
+            ${item.item_count ? `<span class="chip">${escapeHtml(item.item_count)} items</span>` : ""}
+            ${item.digital_object_count ? `<span class="chip">${escapeHtml(item.digital_object_count)} digital objects</span>` : ""}
+            ${item.media_types ? `<span class="chip">${escapeHtml(clampText(item.media_types, 36))}</span>` : ""}
+            <a class="chip amber" href="${escapeHtml(item.catalog_url || item.metadata_url)}" target="_blank" rel="noreferrer">Catalog</a>
+          </div>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
 function renderSightings() {
   const q = state.search.toLowerCase();
   const items = state.sightings.filter((item) => {
@@ -407,6 +454,105 @@ function renderSightings() {
   `;
 }
 
+function shapeColor(shape) {
+  const value = String(shape || "").toLowerCase();
+  if (value.includes("triangle")) return "#e0b45b";
+  if (value.includes("sphere") || value.includes("circle") || value.includes("round")) return "#6ed4d8";
+  if (value.includes("light") || value.includes("fireball")) return "#f3e58b";
+  if (value.includes("disk") || value.includes("disc")) return "#82a6df";
+  if (value.includes("cigar") || value.includes("cylinder")) return "#d97a6c";
+  return "#7cc891";
+}
+
+function mapVisibleSightings() {
+  const q = state.search.toLowerCase();
+  const shape = els.mapShapeFilter?.value || "";
+  const minYear = Number(els.mapYearMin?.value || 1900);
+  const maxYear = Number(els.mapYearMax?.value || 2030);
+  const source = state.mapSightings.length ? state.mapSightings : state.sightings;
+  return source.filter((item) => {
+    const lat = Number(item.latitude);
+    const lon = Number(item.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false;
+    if (shape && item.shape !== shape) return false;
+    if (Number.isFinite(minYear) && item.year && item.year < minYear) return false;
+    if (Number.isFinite(maxYear) && item.year && item.year > maxYear) return false;
+    return !q || [item.city, item.state, item.country, item.shape, item.year, item.summary]
+      .join(" ")
+      .toLowerCase()
+      .includes(q);
+  });
+}
+
+function drawSightingMap() {
+  const canvas = els.sightingMapCanvas;
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  const rect = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  const width = Math.max(720, Math.floor(rect.width || 900));
+  const height = Math.floor(width * 0.56);
+  canvas.width = width * dpr;
+  canvas.height = height * dpr;
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = "#071014";
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.strokeStyle = "rgba(159,176,173,0.16)";
+  ctx.lineWidth = 1;
+  for (let lon = -180; lon <= 180; lon += 30) {
+    const x = ((lon + 180) / 360) * width;
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, height);
+    ctx.stroke();
+  }
+  for (let lat = -60; lat <= 60; lat += 20) {
+    const y = ((90 - lat) / 180) * height;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(width, y);
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = "rgba(36,48,57,0.82)";
+  [
+    [0.12, 0.28, 0.2, 0.26], [0.32, 0.34, 0.13, 0.22], [0.46, 0.25, 0.18, 0.22],
+    [0.59, 0.36, 0.12, 0.3], [0.72, 0.32, 0.16, 0.18], [0.78, 0.62, 0.1, 0.1]
+  ].forEach(([x, y, w, h]) => {
+    ctx.beginPath();
+    ctx.ellipse(x * width, y * height, w * width, h * height, 0, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  const points = mapVisibleSightings();
+  const maxPoints = Math.min(points.length, 50000);
+  ctx.globalCompositeOperation = "lighter";
+  for (let i = 0; i < maxPoints; i++) {
+    const item = points[i];
+    const x = ((Number(item.longitude) + 180) / 360) * width;
+    const y = ((90 - Number(item.latitude)) / 180) * height;
+    if (x < 0 || x > width || y < 0 || y > height) continue;
+    ctx.fillStyle = shapeColor(item.shape);
+    ctx.globalAlpha = 0.42;
+    ctx.beginPath();
+    ctx.arc(x, y, 1.35, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = "source-over";
+  ctx.fillStyle = colors.text;
+  ctx.font = "700 14px system-ui, sans-serif";
+  ctx.fillText(`${points.length.toLocaleString()} mapped public reports`, 16, 28);
+  ctx.fillStyle = colors.muted;
+  ctx.font = "12px system-ui, sans-serif";
+  ctx.fillText("Equirectangular plot: longitude vs latitude. Not all reports are validated events.", 16, 48);
+  if (els.mapCaption) {
+    els.mapCaption.textContent = `${points.length.toLocaleString()} reports match the current filters. Colors represent reported shape/type.`;
+  }
+}
+
 function switchView(view) {
   state.activeView = view;
   document.querySelectorAll("[data-view]").forEach((button) => {
@@ -416,9 +562,15 @@ function switchView(view) {
   els.fileTable.classList.toggle("hidden", view !== "files");
   els.findingsPanel.classList.toggle("hidden", view !== "findings");
   els.collectionsPanel.classList.toggle("hidden", view !== "collections");
+  els.recordsPanel.classList.toggle("hidden", view !== "records");
   els.sightingsPanel.classList.toggle("hidden", view !== "sightings");
+  els.mapPanel.classList.toggle("hidden", view !== "map");
   if (view === "sightings" && staticMode && !fullStaticSightingsLoaded) {
     loadStaticSightings();
+  }
+  if (view === "map") {
+    loadMapSightings();
+    requestAnimationFrame(drawSightingMap);
   }
 }
 
@@ -429,6 +581,19 @@ async function loadStaticSightings() {
     renderSightings();
   } catch (error) {
     console.warn("Full static sighting dataset could not be loaded", error);
+  }
+}
+
+async function loadMapSightings() {
+  if (state.mapSightings.length) return;
+  try {
+    state.mapSightings = staticMode
+      ? await getJson("data/public_sightings_lite.json")
+      : await getJson("/api/sightings/map");
+    if (staticMode) state.sightings = state.mapSightings;
+    drawSightingMap();
+  } catch (error) {
+    console.warn("Map sighting data could not be loaded", error);
   }
 }
 
@@ -728,6 +893,7 @@ function renderAll() {
   renderFiles();
   renderFindings();
   renderCollections();
+  renderOfficialRecords();
   renderSightings();
   renderCharts();
   renderDetail();
@@ -751,7 +917,9 @@ function bindEvents() {
     renderCases();
     renderFiles();
     renderCollections();
+    renderOfficialRecords();
     renderSightings();
+    drawSightingMap();
   }));
   els.categoryFilter.addEventListener("change", (event) => {
     state.category = event.target.value;
@@ -768,7 +936,14 @@ function bindEvents() {
   document.querySelectorAll("[data-view]").forEach((button) => {
     button.addEventListener("click", () => switchView(button.dataset.view));
   });
-  window.addEventListener("resize", debounce(drawGraph, 120));
+  [els.mapShapeFilter, els.mapYearMin, els.mapYearMax].forEach((control) => {
+    control?.addEventListener("input", debounce(drawSightingMap, 120));
+    control?.addEventListener("change", debounce(drawSightingMap, 120));
+  });
+  window.addEventListener("resize", debounce(() => {
+    drawGraph();
+    drawSightingMap();
+  }, 120));
   setupGraphInteraction();
 }
 

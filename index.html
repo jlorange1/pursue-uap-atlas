@@ -61,14 +61,37 @@
               <button data-view="files" type="button">Files</button>
               <button data-view="findings" type="button">Findings</button>
               <button data-view="collections" type="button">Sources</button>
+              <button data-view="records" type="button">Records</button>
               <button data-view="sightings" type="button">Sightings</button>
+              <button data-view="map" type="button">Map</button>
             </div>
           </div>
           <div id="caseList" class="case-list" aria-live="polite"></div>
           <div id="fileTable" class="file-table hidden" aria-live="polite"></div>
           <div id="findingsPanel" class="findings-panel hidden" aria-live="polite"></div>
           <div id="collectionsPanel" class="collections-panel hidden" aria-live="polite"></div>
+          <div id="recordsPanel" class="records-panel hidden" aria-live="polite"></div>
           <div id="sightingsPanel" class="sightings-panel hidden" aria-live="polite"></div>
+          <div id="mapPanel" class="map-panel hidden" aria-live="polite">
+            <div class="map-toolbar">
+              <label>
+                Map type
+                <select id="mapShapeFilter">
+                  <option value="">All reported shapes</option>
+                </select>
+              </label>
+              <label>
+                From year
+                <input id="mapYearMin" type="number" min="1900" max="2030" value="1900">
+              </label>
+              <label>
+                To year
+                <input id="mapYearMax" type="number" min="1900" max="2030" value="2026">
+              </label>
+            </div>
+            <canvas id="sightingMapCanvas" width="1100" height="620" aria-label="World map of public sighting reports"></canvas>
+            <p id="mapCaption" class="caption">Crowdsourced report map. Point density reflects reporting behavior as well as sightings.</p>
+          </div>
         </div>
 
         <aside class="detail-panel" aria-label="Selected record detail">

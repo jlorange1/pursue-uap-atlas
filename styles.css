@@ -411,7 +411,9 @@ button:focus-visible {
 .source-list,
 .findings-panel,
 .collections-panel,
+.records-panel,
 .sightings-panel,
+.map-panel,
 .timeline-panel {
   display: grid;
   gap: 0.75rem;
@@ -422,6 +424,7 @@ button:focus-visible {
 .source-item,
 .finding,
 .collection-item,
+.record-item,
 .sighting-item,
 .timeline-item {
   border: 1px solid var(--line);
@@ -437,6 +440,7 @@ button:focus-visible {
 .timeline-item h5,
 .source-item h3,
 .collection-item h3,
+.record-item h3,
 .sighting-item h3 {
   margin: 0 0 0.45rem;
   color: var(--text);
@@ -444,10 +448,44 @@ button:focus-visible {
 }
 
 .collection-grid,
+.record-grid,
 .sighting-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
   gap: 0.75rem;
+}
+
+.map-toolbar {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.map-toolbar label {
+  display: grid;
+  gap: 0.45rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.map-toolbar select,
+.map-toolbar input {
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #0f1519;
+  color: var(--text);
+  padding: 0.65rem 0.75rem;
+}
+
+.map-panel canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #071014;
 }
 
 .file-table {
@@ -597,7 +635,8 @@ mark {
   }
 
   .filters,
-  .stats-grid {
+  .stats-grid,
+  .map-toolbar {
     grid-template-columns: 1fr;
   }
 
