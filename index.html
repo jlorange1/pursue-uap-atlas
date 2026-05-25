@@ -143,7 +143,15 @@
               <button id="mapPlay" class="ghost-button" type="button">Play</button>
             </div>
             <div id="mapFocusSummary" class="map-focus-summary"></div>
-            <canvas id="sightingMapCanvas" width="1100" height="620" aria-label="World map of public sighting reports"></canvas>
+            <div class="map-canvas-shell">
+              <canvas id="sightingMapCanvas" width="1100" height="620" aria-label="World map of public sighting reports"></canvas>
+              <div id="mapTooltip" class="map-tooltip hidden" role="status"></div>
+              <div class="map-legend" aria-label="Map legend">
+                <span><i class="legend-dot sighting"></i>Reports</span>
+                <span><i class="legend-dot fireball"></i>Fireballs</span>
+                <span><i class="legend-dot uas"></i>FAA UAS</span>
+              </div>
+            </div>
             <div id="mapTimeline" class="map-timeline" aria-label="Sighting and baseline timeline"></div>
             <p id="mapCaption" class="caption">Crowdsourced report map. Point density reflects reporting behavior as well as sightings.</p>
           </div>

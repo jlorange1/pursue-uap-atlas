@@ -15,6 +15,9 @@ const state = {
   sightings: [],
   mapSightings: [],
   mapBaselines: [],
+  worldGeo: null,
+  worldGeoLoading: null,
+  mapHits: [],
   timeline: { historical: [], cases: [] },
   graph: { nodes: [], edges: [] },
   selectedCaseId: null,
@@ -64,6 +67,7 @@ const els = {
   mapPlay: document.querySelector("#mapPlay"),
   mapTimeline: document.querySelector("#mapTimeline"),
   mapFocusSummary: document.querySelector("#mapFocusSummary"),
+  mapTooltip: document.querySelector("#mapTooltip"),
   mapCaption: document.querySelector("#mapCaption"),
   boardPanel: document.querySelector("#boardPanel"),
   boardItems: document.querySelector("#boardItems"),
@@ -122,6 +126,23 @@ async function getJson(path) {
   const response = await fetch(path);
   if (!response.ok) throw new Error(`Request failed: ${path}`);
   return response.json();
+}
+
+async function loadWorldMap() {
+  if (state.worldGeo) return state.worldGeo;
+  if (!state.worldGeoLoading) {
+    state.worldGeoLoading = getJson("data/world-countries.geojson")
+      .then((geo) => {
+        state.worldGeo = geo;
+        return geo;
+      })
+      .catch((error) => {
+        console.warn("World basemap could not be loaded", error);
+        state.worldGeoLoading = null;
+        return null;
+      });
+  }
+  return state.worldGeoLoading;
 }
 
 function parseMaybeJson(value, fallback) {
@@ -1046,6 +1067,124 @@ function baselineColor(type) {
   return colors.amber;
 }
 
+function mapProject(lon, lat, width, height) {
+  const padX = Math.max(24, width * 0.035);
+  const padY = Math.max(28, height * 0.075);
+  const plotW = width - padX * 2;
+  const plotH = height - padY * 2;
+  return {
+    x: padX + ((Number(lon) + 180) / 360) * plotW,
+    y: padY + ((90 - Number(lat)) / 180) * plotH
+  };
+}
+
+function drawGeoRing(ctx, ring, width, height) {
+  ring.forEach(([lon, lat], index) => {
+    const point = mapProject(lon, lat, width, height);
+    if (index === 0) ctx.moveTo(point.x, point.y);
+    else ctx.lineTo(point.x, point.y);
+  });
+  ctx.closePath();
+}
+
+function drawGeoGeometry(ctx, geometry, width, height) {
+  if (!geometry) return;
+  if (geometry.type === "Polygon") {
+    geometry.coordinates.forEach((ring) => drawGeoRing(ctx, ring, width, height));
+  } else if (geometry.type === "MultiPolygon") {
+    geometry.coordinates.forEach((polygon) => {
+      polygon.forEach((ring) => drawGeoRing(ctx, ring, width, height));
+    });
+  } else if (geometry.type === "GeometryCollection") {
+    (geometry.geometries || []).forEach((item) => drawGeoGeometry(ctx, item, width, height));
+  }
+}
+
+function drawBasemap(ctx, width, height) {
+  const ocean = ctx.createLinearGradient(0, 0, width, height);
+  ocean.addColorStop(0, "#020507");
+  ocean.addColorStop(0.42, "#061419");
+  ocean.addColorStop(1, "#020708");
+  ctx.fillStyle = ocean;
+  ctx.fillRect(0, 0, width, height);
+
+  const halo = ctx.createRadialGradient(width * 0.5, height * 0.45, 12, width * 0.5, height * 0.45, width * 0.76);
+  halo.addColorStop(0, "rgba(0,255,153,0.12)");
+  halo.addColorStop(0.48, "rgba(119,231,255,0.055)");
+  halo.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = halo;
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.save();
+  ctx.strokeStyle = "rgba(119,231,255,0.13)";
+  ctx.lineWidth = 1;
+  for (let lon = -180; lon <= 180; lon += 20) {
+    const a = mapProject(lon, -82, width, height);
+    const b = mapProject(lon, 84, width, height);
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+  }
+  for (let lat = -80; lat <= 80; lat += 20) {
+    const a = mapProject(-180, lat, width, height);
+    const b = mapProject(180, lat, width, height);
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  if (!state.worldGeo?.features?.length) {
+    ctx.fillStyle = colors.muted;
+    ctx.font = "700 13px system-ui, sans-serif";
+    ctx.fillText("Loading vector basemap...", 18, height - 22);
+    return;
+  }
+
+  ctx.save();
+  ctx.beginPath();
+  state.worldGeo.features.forEach((feature) => drawGeoGeometry(ctx, feature.geometry, width, height));
+  ctx.shadowColor = "rgba(0,255,153,0.32)";
+  ctx.shadowBlur = 18;
+  ctx.fillStyle = "rgba(18, 43, 39, 0.86)";
+  ctx.fill("evenodd");
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = "rgba(119,231,255,0.2)";
+  ctx.lineWidth = 0.72;
+  ctx.stroke();
+  ctx.restore();
+
+  ctx.save();
+  ctx.beginPath();
+  state.worldGeo.features.forEach((feature) => drawGeoGeometry(ctx, feature.geometry, width, height));
+  const landGlow = ctx.createLinearGradient(0, 0, width, height);
+  landGlow.addColorStop(0, "rgba(0,255,153,0.06)");
+  landGlow.addColorStop(0.55, "rgba(255,209,102,0.035)");
+  landGlow.addColorStop(1, "rgba(119,231,255,0.05)");
+  ctx.fillStyle = landGlow;
+  ctx.fill("evenodd");
+  ctx.restore();
+
+  ctx.save();
+  ctx.strokeStyle = "rgba(0,255,153,0.42)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(0.5, 0.5, width - 1, height - 1);
+  ctx.strokeStyle = "rgba(255,209,102,0.38)";
+  ctx.beginPath();
+  ctx.moveTo(16, 16);
+  ctx.lineTo(70, 16);
+  ctx.moveTo(16, 16);
+  ctx.lineTo(16, 70);
+  ctx.moveTo(width - 16, height - 16);
+  ctx.lineTo(width - 70, height - 16);
+  ctx.moveTo(width - 16, height - 16);
+  ctx.lineTo(width - 16, height - 70);
+  ctx.stroke();
+  ctx.restore();
+}
+
 function renderMapTimeline(points, baselines) {
   if (!els.mapTimeline) return;
   const years = new Map();
@@ -1082,8 +1221,7 @@ function drawClusterLayer(ctx, items, width, height, colorFn, options = {}) {
     const lat = Number(item.latitude);
     const lon = Number(item.longitude);
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
-    const x = ((lon + 180) / 360) * width;
-    const y = ((90 - lat) / 180) * height;
+    const { x, y } = mapProject(lon, lat, width, height);
     if (x < 0 || x > width || y < 0 || y > height) return;
     const key = `${Math.floor(x / cellSize)}:${Math.floor(y / cellSize)}`;
     const entry = cells.get(key) || { x: 0, y: 0, count: 0, color: colorFn(item) };
@@ -1110,6 +1248,18 @@ function drawClusterLayer(ctx, items, width, height, colorFn, options = {}) {
     ctx.stroke();
   });
   ctx.shadowBlur = 0;
+  if (options.hits) {
+    [...cells.values()].forEach((cell) => {
+      options.hits.push({
+        x: cell.x / cell.count,
+        y: cell.y / cell.count,
+        radius: Math.max(8, Math.min(26, 6 + Math.sqrt(cell.count / maxCount) * 22)),
+        count: cell.count,
+        color: cell.color,
+        label: options.label || "cluster"
+      });
+    });
+  }
   return cells.size;
 }
 
@@ -1138,48 +1288,14 @@ function drawSightingMap() {
   const ctx = canvas.getContext("2d");
   const rect = canvas.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
-  const width = Math.max(720, Math.floor(rect.width || 900));
+  const width = Math.max(360, Math.floor(rect.width || 900));
   const height = Math.floor(width * 0.56);
   canvas.width = width * dpr;
   canvas.height = height * dpr;
   ctx.scale(dpr, dpr);
   ctx.clearRect(0, 0, width, height);
-  ctx.fillStyle = "#03080a";
-  ctx.fillRect(0, 0, width, height);
-
-  const glow = ctx.createRadialGradient(width * 0.5, height * 0.48, 20, width * 0.5, height * 0.48, width * 0.72);
-  glow.addColorStop(0, "rgba(0,255,153,0.08)");
-  glow.addColorStop(0.55, "rgba(119,231,255,0.035)");
-  glow.addColorStop(1, "rgba(0,0,0,0)");
-  ctx.fillStyle = glow;
-  ctx.fillRect(0, 0, width, height);
-
-  ctx.strokeStyle = "rgba(0,255,153,0.16)";
-  ctx.lineWidth = 1;
-  for (let lon = -180; lon <= 180; lon += 30) {
-    const x = ((lon + 180) / 360) * width;
-    ctx.beginPath();
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, height);
-    ctx.stroke();
-  }
-  for (let lat = -60; lat <= 60; lat += 20) {
-    const y = ((90 - lat) / 180) * height;
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(width, y);
-    ctx.stroke();
-  }
-
-  ctx.fillStyle = "rgba(19,39,38,0.84)";
-  [
-    [0.12, 0.28, 0.2, 0.26], [0.32, 0.34, 0.13, 0.22], [0.46, 0.25, 0.18, 0.22],
-    [0.59, 0.36, 0.12, 0.3], [0.72, 0.32, 0.16, 0.18], [0.78, 0.62, 0.1, 0.1]
-  ].forEach(([x, y, w, h]) => {
-    ctx.beginPath();
-    ctx.ellipse(x * width, y * height, w * width, h * height, 0, 0, Math.PI * 2);
-    ctx.fill();
-  });
+  drawBasemap(ctx, width, height);
+  state.mapHits = [];
 
   const layer = els.mapLayerFilter?.value || "sightings";
   const points = layer === "baselines" ? [] : mapVisibleSightings();
@@ -1189,12 +1305,11 @@ function drawSightingMap() {
   ctx.globalCompositeOperation = "lighter";
   let renderedSightings = 0;
   if (renderMode === "density") {
-    renderedSightings = drawClusterLayer(ctx, points.slice(0, maxPoints), width, height, (item) => shapeColor(item.shape), { cellSize: 12 });
+    renderedSightings = drawClusterLayer(ctx, points.slice(0, maxPoints), width, height, (item) => shapeColor(item.shape), { cellSize: 12, hits: state.mapHits, label: "public reports" });
   } else {
     for (let i = 0; i < maxPoints; i++) {
       const item = points[i];
-      const x = ((Number(item.longitude) + 180) / 360) * width;
-      const y = ((90 - Number(item.latitude)) / 180) * height;
+      const { x, y } = mapProject(Number(item.longitude), Number(item.latitude), width, height);
       if (x < 0 || x > width || y < 0 || y > height) continue;
       renderedSightings += 1;
       ctx.shadowColor = shapeColor(item.shape);
@@ -1209,11 +1324,10 @@ function drawSightingMap() {
   ctx.shadowBlur = 0;
   let renderedBaselines = 0;
   if (renderMode === "density") {
-    renderedBaselines = drawClusterLayer(ctx, baselines, width, height, (item) => baselineColor(item.event_type), { cellSize: 16 });
+    renderedBaselines = drawClusterLayer(ctx, baselines, width, height, (item) => baselineColor(item.event_type), { cellSize: 16, hits: state.mapHits, label: "baseline events" });
   } else {
     baselines.forEach((item) => {
-      const x = ((Number(item.longitude) + 180) / 360) * width;
-      const y = ((90 - Number(item.latitude)) / 180) * height;
+      const { x, y } = mapProject(Number(item.longitude), Number(item.latitude), width, height);
       if (x < 0 || x > width || y < 0 || y > height) return;
       renderedBaselines += 1;
       const energy = Number(item.metric_primary);
@@ -1244,7 +1358,7 @@ function drawSightingMap() {
   ctx.fillText(label, 16, 28);
   ctx.fillStyle = colors.muted;
   ctx.font = "12px system-ui, sans-serif";
-  ctx.fillText("Equirectangular plot: longitude vs latitude. Baselines challenge, not dismiss, sighting reports.", 16, 48);
+  ctx.fillText("Vector basemap: country boundaries, clustered reports, and baseline challenge layers.", 16, 48);
   renderMapTimeline(points, baselines);
   if (els.mapFocusSummary) {
     const yearMin = Number(els.mapYearMin?.value || 1900);
@@ -1259,7 +1373,7 @@ function drawSightingMap() {
     `;
   }
   if (els.mapCaption) {
-    els.mapCaption.textContent = `${label} match the current filters. Density mode clusters nearby records for pattern scanning; raw mode shows individual reports. Sightings are colored by reported shape; baselines use orange for fireballs and green for FAA UAS reports.`;
+    els.mapCaption.textContent = `${label} match the current filters on a real vector country basemap. Density mode clusters nearby records for pattern scanning; raw mode shows individual reports. Sightings are colored by reported shape; baselines use orange for fireballs and green for FAA UAS reports.`;
   }
 }
 
@@ -1303,6 +1417,7 @@ async function loadStaticSightings() {
 async function loadMapSightings() {
   const layer = els.mapLayerFilter?.value || "sightings";
   try {
+    await loadWorldMap();
     if (layer !== "baselines" && !state.mapSightings.length) {
       state.mapSightings = staticMode
         ? await getJson("data/public_sightings_lite.json")
@@ -1636,6 +1751,39 @@ function setupGraphInteraction() {
   });
 }
 
+function setupMapInteraction() {
+  if (!els.sightingMapCanvas || !els.mapTooltip) return;
+  els.sightingMapCanvas.addEventListener("mousemove", (event) => {
+    const rect = els.sightingMapCanvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    let closest = null;
+    let best = Infinity;
+    state.mapHits.forEach((hit) => {
+      const distance = Math.hypot(hit.x - x, hit.y - y);
+      if (distance < best) {
+        closest = hit;
+        best = distance;
+      }
+    });
+    if (!closest || best > closest.radius + 10) {
+      els.mapTooltip.classList.add("hidden");
+      return;
+    }
+    els.mapTooltip.innerHTML = `
+      <span class="field-label">${escapeHtml(closest.label)}</span>
+      <strong>${escapeHtml(closest.count.toLocaleString())}</strong>
+      <p>Clustered records in this grid cell</p>
+    `;
+    els.mapTooltip.style.left = `${Math.min(rect.width - 190, Math.max(10, x + 16))}px`;
+    els.mapTooltip.style.top = `${Math.min(rect.height - 104, Math.max(10, y + 16))}px`;
+    els.mapTooltip.classList.remove("hidden");
+  });
+  els.sightingMapCanvas.addEventListener("mouseleave", () => {
+    els.mapTooltip.classList.add("hidden");
+  });
+}
+
 function renderAll() {
   renderStats();
   renderFilters();
@@ -1735,6 +1883,7 @@ function bindEvents() {
     drawSightingMap();
   }, 120));
   setupGraphInteraction();
+  setupMapInteraction();
 }
 
 bindEvents();
