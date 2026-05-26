@@ -31,12 +31,23 @@ const state = {
   agency: "",
   kind: "",
   graphFocus: null,
+  graphFilter: "all",
+  graphHits: [],
+  graphHover: null,
+  graphAnimationFrame: null,
+  inspector: { title: "No target selected", type: "Idle", body: "", meta: [] },
   board: { items: [], notes: "" },
+  eventLog: [],
+  mapSelectedCluster: null,
+  activeDeckPreset: "mission",
+  densityMode: "standard",
   mapPlaybackTimer: null
 };
 
 const els = {
   snapshotStatus: document.querySelector("#snapshotStatus"),
+  commandClock: document.querySelector("#commandClock"),
+  systemPulse: document.querySelector("#systemPulse"),
   statsGrid: document.querySelector("#statsGrid"),
   searchInput: document.querySelector("#searchInput"),
   categoryFilter: document.querySelector("#categoryFilter"),
@@ -49,6 +60,8 @@ const els = {
   intelResults: document.querySelector("#intelResults"),
   overviewMetrics: document.querySelector("#overviewMetrics"),
   evidenceLegend: document.querySelector("#evidenceLegend"),
+  missionPreviewCanvas: document.querySelector("#missionPreviewCanvas"),
+  missionTicker: document.querySelector("#missionTicker"),
   methodLoop: document.querySelector("#methodLoop"),
   integrationMatrix: document.querySelector("#integrationMatrix"),
   globalCoverage: document.querySelector("#globalCoverage"),
@@ -73,8 +86,16 @@ const els = {
   mapTimeline: document.querySelector("#mapTimeline"),
   mapFocusSummary: document.querySelector("#mapFocusSummary"),
   mapTooltip: document.querySelector("#mapTooltip"),
+  mapCoordinateReadout: document.querySelector("#mapCoordinateReadout"),
   mapCaption: document.querySelector("#mapCaption"),
   graphPanel: document.querySelector("#graphPanel"),
+  graphTelemetry: document.querySelector("#graphTelemetry"),
+  inspectorDrawer: document.querySelector("#inspectorDrawer"),
+  inspectorTitle: document.querySelector("#inspectorTitle"),
+  inspectorContent: document.querySelector("#inspectorContent"),
+  closeInspector: document.querySelector("#closeInspector"),
+  blackboxStatus: document.querySelector("#blackboxStatus"),
+  blackboxStream: document.querySelector("#blackboxStream"),
   boardPanel: document.querySelector("#boardPanel"),
   boardItems: document.querySelector("#boardItems"),
   boardNotes: document.querySelector("#boardNotes"),
@@ -98,7 +119,8 @@ const colors = {
   amber: "#f2c46d",
   green: "#64e6b1",
   red: "#ff6d7a",
-  blue: "#96b8ff"
+  blue: "#96b8ff",
+  violet: "#b8a7ff"
 };
 
 let staticMode = false;
@@ -199,13 +221,18 @@ function pinBoardItem(item) {
     });
     state.board.items = state.board.items.slice(0, 48);
     saveBoard();
+    pushBlackbox("Evidence pinned", clampText(item.title, 86), "active");
   }
+  renderSystemPulse();
   renderBoard();
 }
 
 function removeBoardItem(index) {
+  const removed = state.board.items[index];
   state.board.items.splice(index, 1);
   saveBoard();
+  if (removed) pushBlackbox("Evidence removed", clampText(removed.title, 86), "attention");
+  renderSystemPulse();
   renderBoard();
 }
 
@@ -255,6 +282,100 @@ function compactNumber(value) {
   const number = Number(value || 0);
   if (!Number.isFinite(number)) return "0";
   return new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(number);
+}
+
+function pushBlackbox(label, detail = "", severity = "info") {
+  const entry = {
+    label,
+    detail,
+    severity,
+    time: new Date()
+  };
+  state.eventLog.unshift(entry);
+  state.eventLog = state.eventLog.slice(0, 18);
+  renderBlackbox();
+}
+
+function renderBlackbox() {
+  if (!els.blackboxStream) return;
+  if (els.blackboxStatus) {
+    els.blackboxStatus.textContent = state.eventLog[0]
+      ? `${state.eventLog[0].label} / ${state.eventLog[0].time.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`
+      : "Awaiting telemetry";
+  }
+  els.blackboxStream.innerHTML = state.eventLog.slice(0, 10).map((item) => `
+    <article class="blackbox-event ${escapeHtml(item.severity)}">
+      <span>${escapeHtml(item.time.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }))}</span>
+      <strong>${escapeHtml(item.label)}</strong>
+      <p>${escapeHtml(item.detail)}</p>
+    </article>
+  `).join("");
+}
+
+function renderClock() {
+  if (!els.commandClock) return;
+  const now = new Date();
+  els.commandClock.textContent = now.toLocaleString([], {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
+}
+
+function modulePulseRows() {
+  const s = state.summary || {};
+  return [
+    ["Sources", s.collections || 0, "stable"],
+    ["Cases", s.cases || 0, "stable"],
+    ["Map", state.worldGeo?.features?.length || 180, "active"],
+    ["Sightings", s.public_sightings || 0, "lead"],
+    ["Baselines", s.baseline_events || 0, "attention"],
+    ["Graph", s.cross_refs || 0, "active"],
+    ["Board", state.board.items.length, state.board.items.length ? "active" : "idle"],
+    ["Static Build", staticMode ? "JSON" : "API", staticMode ? "attention" : "stable"],
+    ["GitHub Pages", "Live", "stable"],
+    ["Local API", staticMode ? "Off" : "On", staticMode ? "attention" : "stable"]
+  ];
+}
+
+function renderSystemPulse() {
+  if (!els.systemPulse) return;
+  els.systemPulse.innerHTML = modulePulseRows().map(([label, value, status]) => `
+    <button class="pulse-segment ${escapeHtml(status)}" type="button" data-pulse-label="${escapeHtml(label)}">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(typeof value === "number" ? compactNumber(value) : value)}</strong>
+    </button>
+  `).join("");
+}
+
+function openInspector(payload) {
+  state.inspector = {
+    title: payload.title || "Inspector",
+    type: payload.type || "Evidence",
+    body: payload.body || "",
+    meta: Array.isArray(payload.meta) ? payload.meta : [],
+    actions: Array.isArray(payload.actions) ? payload.actions : []
+  };
+  renderInspector();
+}
+
+function renderInspector() {
+  if (!els.inspectorDrawer || !els.inspectorTitle || !els.inspectorContent) return;
+  const inspector = state.inspector;
+  els.inspectorTitle.textContent = inspector.title;
+  els.inspectorDrawer.classList.toggle("active", inspector.type !== "Idle");
+  els.inspectorContent.innerHTML = `
+    <div class="case-meta">
+      <span class="chip cyan">${escapeHtml(inspector.type)}</span>
+      ${inspector.meta.map(([label, value]) => `<span class="chip"><b>${escapeHtml(label)}:</b> ${escapeHtml(value)}</span>`).join("")}
+    </div>
+    <p>${escapeHtml(inspector.body || "No detail loaded.")}</p>
+    <div class="inspector-actions">
+      ${(inspector.actions || []).map((action) => action).join("")}
+    </div>
+  `;
 }
 
 function evidenceClassRows() {
@@ -405,13 +526,16 @@ async function loadBaseData() {
       getJson("/api/graph")
     ]);
     Object.assign(state, { summary, cases, files, findings, sources, collections, officialRecords, methods, researchSignals, baselineSummary, baselines, sightingSummary, sightings, timeline, graph });
+    pushBlackbox("Local API online", `${summary.cases} cases and ${summary.cross_refs} graph edges loaded`, "stable");
   } catch (error) {
     staticMode = true;
     staticData = await getJson("data/uap_findings.json");
     Object.assign(state, transformStaticData(staticData));
+    pushBlackbox("Static JSON mode", "Local API unavailable; GitHub Pages-compatible data loaded", "attention");
   }
   state.selectedCaseId = state.cases[0]?.id || null;
   await selectCase(state.selectedCaseId, false);
+  pushBlackbox("Flight deck initialized", `${state.cases.length} cases staged for analysis`, "active");
   renderAll();
 }
 
@@ -455,6 +579,101 @@ function renderOverview() {
       </article>
     `).join("");
   }
+  if (els.missionTicker) {
+    const signals = [
+      `${formatNumber(s.collections || 0)} source collections`,
+      `${formatNumber(s.official_records || 0)} official records`,
+      `${compactNumber(s.public_sightings || 0)} public leads`,
+      `${compactNumber(s.baseline_events || 0)} baseline challenges`,
+      `${formatNumber(s.cross_refs || 0)} graph edges`
+    ];
+    els.missionTicker.innerHTML = signals.map((item) => `<span>${escapeHtml(item)}</span>`).join("");
+  }
+  drawMissionPreview();
+}
+
+function drawMissionPreview() {
+  const canvas = els.missionPreviewCanvas;
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  const rect = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  const width = Math.max(520, Math.floor(rect.width || 760));
+  const height = Math.max(280, Math.floor(width * 0.42));
+  canvas.width = width * dpr;
+  canvas.height = height * dpr;
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, width, height);
+  const gradient = ctx.createRadialGradient(width * 0.55, height * 0.48, 20, width * 0.55, height * 0.48, width * 0.7);
+  gradient.addColorStop(0, "rgba(139,223,247,0.16)");
+  gradient.addColorStop(0.55, "rgba(100,230,177,0.05)");
+  gradient.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = "#05080d";
+  ctx.fillRect(0, 0, width, height);
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.save();
+  ctx.strokeStyle = "rgba(139,223,247,0.08)";
+  ctx.lineWidth = 1;
+  for (let x = 18; x < width; x += 38) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, height);
+    ctx.stroke();
+  }
+  for (let y = 18; y < height; y += 38) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(width, y);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  const cx = width * 0.55;
+  const cy = height * 0.52;
+  const nodes = state.graph.nodes.slice(0, 42);
+  const selected = state.graph.nodes.find((node) => node.id === state.selectedCaseId) || nodes[0];
+  ctx.save();
+  [0.22, 0.36, 0.5].forEach((scale, index) => {
+    ctx.strokeStyle = index === 1 ? "rgba(242,196,109,0.18)" : "rgba(139,223,247,0.14)";
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, width * scale, height * scale * 0.75, -0.12, 0, Math.PI * 2);
+    ctx.stroke();
+  });
+  nodes.forEach((node, index) => {
+    const angle = (index / Math.max(nodes.length, 1)) * Math.PI * 2;
+    const ring = 0.42 + (index % 3) * 0.14;
+    const x = cx + Math.cos(angle) * width * ring * 0.34;
+    const y = cy + Math.sin(angle) * height * ring * 0.32;
+    const color = graphColor(node.category);
+    ctx.strokeStyle = "rgba(139,223,247,0.12)";
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.arc(x, y, node.id === selected?.id ? 5 : 2.8, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = colors.text;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 14, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = colors.green;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.fillStyle = colors.muted;
+  ctx.font = "700 11px system-ui, sans-serif";
+  ctx.fillText("NEXUS CORE", 18, 28);
+  ctx.fillStyle = colors.text;
+  ctx.font = "700 13px system-ui, sans-serif";
+  ctx.fillText(clampText(selected?.title || "Evidence graph", 54), 18, height - 24);
+  ctx.restore();
 }
 
 function renderStats() {
@@ -473,6 +692,7 @@ function renderStats() {
     stat("Cross refs", formatNumber(s.cross_refs), "graph")
   ].join("");
   els.snapshotStatus.textContent = `${formatNumber(s.cases)} cases, ${formatNumber(s.files)} files, ${formatNumber(s.collections)} source collections, ${formatNumber(s.official_jurisdiction_count || 0)} official jurisdictions, ${formatNumber(s.public_sightings)} public sightings`;
+  renderSystemPulse();
   renderOverview();
 }
 
@@ -970,6 +1190,7 @@ function runIntelSearch() {
   els.intelResults.querySelectorAll("[data-intel-url]").forEach((button) => {
     button.addEventListener("click", () => window.open(button.dataset.intelUrl, "_blank", "noreferrer"));
   });
+  pushBlackbox("Intelligence query", `${query} / ${ranked.length} ranked matches`, ranked.length ? "active" : "attention");
 }
 
 function buildBriefing() {
@@ -1022,6 +1243,7 @@ function renderBoard() {
         <span class="chip">${escapeHtml(item.meta || "local evidence")}</span>
         ${item.caseId ? `<button class="chip" type="button" data-board-case="${escapeHtml(item.caseId)}">Open case</button>` : ""}
         ${item.url ? `<a class="chip amber" href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer">Source</a>` : ""}
+        <button class="chip" type="button" data-inspect-board="${index}">Inspect</button>
         <button class="chip danger" type="button" data-remove-board="${index}">Remove</button>
       </div>
     </article>
@@ -1048,6 +1270,20 @@ function renderBoard() {
     button.addEventListener("click", () => {
       switchView("cases");
       selectCase(button.dataset.boardCase);
+    });
+  });
+  els.boardItems.querySelectorAll("[data-inspect-board]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const item = state.board.items[Number(button.dataset.inspectBoard)];
+      if (!item) return;
+      openInspector({
+        type: `Board / ${item.type}`,
+        title: item.title,
+        body: item.summary,
+        meta: [["score", item.score ? `${credibilityLabel(item.score)} ${item.score}/99` : "unscored"], ["meta", item.meta || "local evidence"]],
+        actions: [item.url ? `<a class="chip amber" href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer">Open source</a>` : ""]
+      });
+      pushBlackbox("Board item inspected", clampText(item.title, 84), "info");
     });
   });
 }
@@ -1170,6 +1406,17 @@ function mapProject(lon, lat, width, height) {
   return {
     x: padX + ((Number(lon) + 180) / 360) * plotW,
     y: padY + ((90 - Number(lat)) / 180) * plotH
+  };
+}
+
+function mapUnproject(x, y, width, height) {
+  const padX = Math.max(24, width * 0.035);
+  const padY = Math.max(28, height * 0.075);
+  const plotW = width - padX * 2;
+  const plotH = height - padY * 2;
+  return {
+    lon: ((x - padX) / plotW) * 360 - 180,
+    lat: 90 - ((y - padY) / plotH) * 180
   };
 }
 
@@ -1486,6 +1733,7 @@ function drawSightingMap() {
 
 function switchView(view) {
   if (!validViews.has(view)) return;
+  const changed = state.activeView !== view;
   state.activeView = view;
   if (window.location.hash !== `#${view}`) {
     window.history.replaceState(null, "", `#${view}`);
@@ -1517,6 +1765,9 @@ function switchView(view) {
   }
   if (view === "graph") {
     requestAnimationFrame(drawGraph);
+  }
+  if (changed) {
+    pushBlackbox("Workspace changed", view === "intel" ? "Mission Control" : view, "info");
   }
 }
 
@@ -1591,6 +1842,24 @@ async function selectCase(caseId, shouldRender = true) {
   state.selectedCaseId = caseId;
   state.graphFocus = caseId;
   state.selectedCase = await loadCaseDetail(caseId);
+  if (state.selectedCase?.case) {
+    const item = state.selectedCase.case;
+    openInspector({
+      type: "Case dossier",
+      title: item.title,
+      body: item.summary,
+      meta: [
+        ["category", item.category || "case"],
+        ["date", item.timeline_date || "unknown"],
+        ["files", state.selectedCase.files.length],
+        ["links", state.selectedCase.outgoing.length]
+      ],
+      actions: [
+        item.case_url ? `<a class="chip amber" href="${escapeHtml(item.case_url)}" target="_blank" rel="noreferrer">Open source</a>` : ""
+      ]
+    });
+    if (shouldRender) pushBlackbox("Case selected", clampText(item.title, 86), "active");
+  }
   if (shouldRender) {
     renderCases();
     renderDetail();
@@ -1764,80 +2033,182 @@ function graphColor(category) {
   return colors.blue;
 }
 
+function graphFilterMatch(node) {
+  const filter = state.graphFilter || "all";
+  if (filter === "all") return true;
+  const category = String(node.category || "").toLowerCase();
+  if (filter === "video") return category.includes("video");
+  if (filter === "archive") return /scan|archive|historical/.test(category);
+  if (filter === "modern") return category.includes("modern");
+  return true;
+}
+
 function drawGraph() {
   const canvas = els.networkCanvas;
   const ctx = canvas.getContext("2d");
   const rect = canvas.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
-  canvas.width = Math.max(720, Math.floor(rect.width * dpr));
-  canvas.height = Math.floor(Math.min(520, Math.max(360, rect.width * 0.58)) * dpr);
+  canvas.width = Math.max(720, Math.floor((rect.width || 900) * dpr));
+  canvas.height = Math.floor(Math.min(720, Math.max(430, (rect.width || 900) * 0.62)) * dpr);
   ctx.scale(dpr, dpr);
   const width = canvas.width / dpr;
   const height = canvas.height / dpr;
   ctx.clearRect(0, 0, width, height);
-  const field = ctx.createRadialGradient(width / 2, height / 2, 16, width / 2, height / 2, Math.max(width, height) * 0.62);
-  field.addColorStop(0, "rgba(0,255,153,0.08)");
-  field.addColorStop(0.55, "rgba(119,231,255,0.035)");
+  const field = ctx.createRadialGradient(width * 0.5, height * 0.5, 20, width * 0.5, height * 0.5, Math.max(width, height) * 0.68);
+  field.addColorStop(0, "rgba(139,223,247,0.12)");
+  field.addColorStop(0.52, "rgba(100,230,177,0.04)");
   field.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = "#05080d";
+  ctx.fillRect(0, 0, width, height);
   ctx.fillStyle = field;
   ctx.fillRect(0, 0, width, height);
+  ctx.save();
+  ctx.strokeStyle = "rgba(139,223,247,0.075)";
+  ctx.lineWidth = 1;
+  for (let x = 18; x < width; x += 42) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, height);
+    ctx.stroke();
+  }
+  for (let y = 18; y < height; y += 42) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(width, y);
+    ctx.stroke();
+  }
+  ctx.restore();
 
-  const nodes = state.graph.nodes;
-  const edges = state.graph.edges;
+  const nodes = state.graph.nodes.filter(graphFilterMatch);
+  const edges = state.graph.edges.filter((edge) => {
+    const from = state.graph.nodes.find((node) => node.id === edge.from_case_id);
+    const to = state.graph.nodes.find((node) => node.id === edge.to_case_id);
+    return (!from || graphFilterMatch(from)) || (!to || graphFilterMatch(to));
+  });
   if (!nodes.length) return;
-  const focus = state.graphFocus || state.selectedCaseId;
-  const categories = [...new Set(nodes.map((node) => node.category))];
+  const focus = nodes.find((node) => node.id === (state.graphFocus || state.selectedCaseId))?.id || nodes[0].id;
+  state.graphFocus = focus;
+  const nodeMap = new Map(state.graph.nodes.map((node) => [node.id, node]));
+  const selected = nodeMap.get(focus) || nodes[0];
+  const relatedEdges = edges
+    .filter((edge) => edge.from_case_id === focus || edge.to_case_id === focus)
+    .sort((a, b) => Number(b.weight || 0) - Number(a.weight || 0))
+    .slice(0, 42);
+  const relatedIds = relatedEdges.map((edge) => edge.from_case_id === focus ? edge.to_case_id : edge.from_case_id);
+  const relatedNodes = relatedIds.map((id) => nodeMap.get(id)).filter(Boolean).filter(graphFilterMatch);
+  const fallbackNodes = nodes.filter((node) => node.id !== focus).slice(0, Math.max(0, 34 - relatedNodes.length));
+  const orbitNodes = [...relatedNodes, ...fallbackNodes].slice(0, 42);
   const cx = width / 2;
-  const cy = height / 2;
-  const radius = Math.min(width, height) * 0.38;
-  const positions = new Map();
-
-  nodes.forEach((node, index) => {
-    const categoryIndex = categories.indexOf(node.category);
-    const ring = 0.64 + (categoryIndex % 3) * 0.14;
-    const angle = (index / nodes.length) * Math.PI * 2 + categoryIndex * 0.42;
+  const cy = height * 0.52;
+  const orbitRadius = Math.min(width, height) * 0.34;
+  const time = performance.now() / 1000;
+  const positions = new Map([[focus, { x: cx, y: cy, r: 27, node: selected }]]);
+  orbitNodes.forEach((node, index) => {
+    const total = Math.max(orbitNodes.length, 1);
+    const ring = index % 3;
+    const angle = (index / total) * Math.PI * 2 + ring * 0.36 - 0.4;
+    const radius = orbitRadius * (0.68 + ring * 0.17);
+    const x = cx + Math.cos(angle) * radius * 1.36;
+    const y = cy + Math.sin(angle) * radius * 0.86;
     positions.set(node.id, {
-      x: cx + Math.cos(angle) * radius * ring,
-      y: cy + Math.sin(angle) * radius * ring,
-      r: Math.max(4, Math.min(12, 3 + Math.sqrt(node.file_total || 1) * 1.7))
+      x,
+      y,
+      r: Math.max(7, Math.min(17, 6 + Math.sqrt(node.file_total || 1) * 1.45)),
+      node
     });
   });
 
-  ctx.lineWidth = 1;
-  edges.forEach((edge) => {
-    const a = positions.get(edge.from_case_id);
-    const b = positions.get(edge.to_case_id);
+  state.graphHits = [];
+  ctx.save();
+  [0.24, 0.42, 0.6].forEach((scale, index) => {
+    ctx.strokeStyle = index === 1 ? "rgba(242,196,109,0.16)" : "rgba(139,223,247,0.1)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, width * scale * 0.5, height * scale * 0.36, -0.08, 0, Math.PI * 2);
+    ctx.stroke();
+  });
+
+  relatedEdges.forEach((edge, index) => {
+    const otherId = edge.from_case_id === focus ? edge.to_case_id : edge.from_case_id;
+    const a = positions.get(focus);
+    const b = positions.get(otherId);
     if (!a || !b) return;
-    const isFocus = focus && (edge.from_case_id === focus || edge.to_case_id === focus);
-    ctx.strokeStyle = isFocus ? "rgba(0, 255, 153, 0.66)" : "rgba(119, 231, 255, 0.13)";
-    ctx.lineWidth = isFocus ? Math.min(4, 1 + edge.weight / 6) : Math.min(2, 0.5 + edge.weight / 18);
+    const color = graphColor(b.node.category);
+    const weight = Math.max(1, Number(edge.weight || 1));
+    const mx = (a.x + b.x) / 2;
+    const my = (a.y + b.y) / 2 - Math.min(80, weight * 2.2);
+    ctx.strokeStyle = `rgba(139,223,247,${Math.min(0.42, 0.12 + weight / 48)})`;
+    ctx.lineWidth = Math.min(3, 0.7 + weight / 16);
     ctx.beginPath();
     ctx.moveTo(a.x, a.y);
-    ctx.lineTo(b.x, b.y);
+    ctx.quadraticCurveTo(mx, my, b.x, b.y);
     ctx.stroke();
-  });
-
-  nodes.forEach((node) => {
-    const pos = positions.get(node.id);
-    const isFocus = node.id === focus;
-    ctx.shadowColor = isFocus ? colors.green : graphColor(node.category);
-    ctx.shadowBlur = isFocus ? 14 : 6;
+    const t = (time * 0.24 + index * 0.071) % 1;
+    const sx = (1 - t) * (1 - t) * a.x + 2 * (1 - t) * t * mx + t * t * b.x;
+    const sy = (1 - t) * (1 - t) * a.y + 2 * (1 - t) * t * my + t * t * b.y;
+    ctx.fillStyle = color;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 10;
     ctx.beginPath();
-    ctx.fillStyle = isFocus ? colors.text : graphColor(node.category);
-    ctx.arc(pos.x, pos.y, isFocus ? pos.r + 4 : pos.r, 0, Math.PI * 2);
+    ctx.arc(sx, sy, 2.2, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = isFocus ? colors.cyan : "#0b1013";
-    ctx.lineWidth = isFocus ? 3 : 1.5;
-    ctx.stroke();
   });
+  ctx.restore();
   ctx.shadowBlur = 0;
 
-  const selected = nodes.find((node) => node.id === focus);
-  if (selected) {
-    ctx.fillStyle = colors.text;
-    ctx.font = "700 14px system-ui, sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText(clampText(selected.title, 46), cx, height - 24);
+  [...positions.values()].forEach((pos) => {
+    const isFocus = pos.node.id === focus;
+    const color = isFocus ? colors.green : graphColor(pos.node.category);
+    ctx.save();
+    ctx.shadowColor = color;
+    ctx.shadowBlur = isFocus ? 24 : 12;
+    ctx.fillStyle = isFocus ? "rgba(238,248,244,0.96)" : color;
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, pos.r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = isFocus ? 4 : 2;
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, pos.r + (isFocus ? 8 : 4), 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+    state.graphHits.push({ ...pos, radius: pos.r + 10 });
+  });
+
+  ctx.save();
+  ctx.fillStyle = colors.text;
+  ctx.font = "800 13px system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText(clampText(selected.title, 54), cx, cy + 54);
+  ctx.fillStyle = colors.muted;
+  ctx.font = "12px system-ui, sans-serif";
+  ctx.fillText(`${relatedEdges.length} active relationship links / ${state.graphFilter.toUpperCase()} filter`, cx, cy + 74);
+  ctx.textAlign = "left";
+  ctx.fillStyle = colors.muted;
+  ctx.font = "700 11px system-ui, sans-serif";
+  ctx.fillText("NEXUS FIELD / CLICK NODE TO INSPECT", 16, 26);
+  ctx.restore();
+
+  if (els.graphTelemetry) {
+    const selectedEdges = relatedEdges.slice(0, 4).map((edge) => {
+      const otherId = edge.from_case_id === focus ? edge.to_case_id : edge.from_case_id;
+      const node = nodeMap.get(otherId);
+      return `<span><b>${escapeHtml(edge.weight || 0)}</b>${escapeHtml(clampText(node?.title || otherId, 34))}</span>`;
+    }).join("");
+    els.graphTelemetry.innerHTML = `
+      <div><span>Focus</span><strong>${escapeHtml(clampText(selected.title, 34))}</strong></div>
+      <div><span>Nodes in field</span><strong>${escapeHtml(orbitNodes.length + 1)}</strong></div>
+      <div><span>Filter</span><strong>${escapeHtml(state.graphFilter)}</strong></div>
+      <div class="graph-links">${selectedEdges || "<span><b>0</b>No linked nodes</span>"}</div>
+    `;
+  }
+
+  if (state.activeView === "graph" && !state.graphAnimationFrame) {
+    state.graphAnimationFrame = requestAnimationFrame(() => {
+      state.graphAnimationFrame = null;
+      drawGraph();
+    });
   }
 }
 
@@ -1846,31 +2217,41 @@ function setupGraphInteraction() {
     const rect = els.networkCanvas.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
-    const width = rect.width;
-    const height = Math.min(520, Math.max(360, width * 0.58));
-    const cx = width / 2;
-    const cy = height / 2;
-    const radius = Math.min(width, height) * 0.38;
-    const categories = [...new Set(state.graph.nodes.map((node) => node.category))];
-    let closest = null;
-    let closestDistance = Infinity;
-    state.graph.nodes.forEach((node, index) => {
-      const categoryIndex = categories.indexOf(node.category);
-      const ring = 0.64 + (categoryIndex % 3) * 0.14;
-      const angle = (index / state.graph.nodes.length) * Math.PI * 2 + categoryIndex * 0.42;
-      const px = cx + Math.cos(angle) * radius * ring;
-      const py = cy + Math.sin(angle) * radius * ring;
-      const distance = Math.hypot(px - x, py - y);
-      if (distance < closestDistance) {
-        closest = node;
-        closestDistance = distance;
-      }
-    });
-    if (closest && closestDistance < 18) selectCase(closest.id);
+    const hit = state.graphHits.find((item) => Math.hypot(item.x - x, item.y - y) <= item.radius);
+    if (hit?.node) {
+      state.graphFocus = hit.node.id;
+      selectCase(hit.node.id);
+      openInspector({
+        type: "Graph node",
+        title: hit.node.title,
+        body: `Nexus node from ${hit.node.category || "case"} evidence. File total: ${hit.node.file_total || 0}.`,
+        meta: [["category", hit.node.category || "case"], ["files", hit.node.file_total || 0]]
+      });
+      pushBlackbox("Graph node focused", clampText(hit.node.title, 84), "active");
+      drawGraph();
+    }
+  });
+  els.networkCanvas.addEventListener("mousemove", (event) => {
+    const rect = els.networkCanvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    const hit = state.graphHits.find((item) => Math.hypot(item.x - x, item.y - y) <= item.radius);
+    els.networkCanvas.style.cursor = hit ? "pointer" : "crosshair";
   });
   els.resetGraph.addEventListener("click", () => {
     state.graphFocus = state.selectedCaseId;
+    pushBlackbox("Nexus reset", "Graph focus returned to selected dossier", "info");
     drawGraph();
+  });
+  document.querySelectorAll("[data-graph-filter]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.graphFilter = button.dataset.graphFilter || "all";
+      document.querySelectorAll("[data-graph-filter]").forEach((item) => {
+        item.classList.toggle("active", item === button);
+      });
+      pushBlackbox("Graph filter", state.graphFilter, "info");
+      drawGraph();
+    });
   });
 }
 
@@ -1880,6 +2261,10 @@ function setupMapInteraction() {
     const rect = els.sightingMapCanvas.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
+    if (els.mapCoordinateReadout) {
+      const coords = mapUnproject(x, y, rect.width, rect.height);
+      els.mapCoordinateReadout.textContent = `${coords.lat.toFixed(2)}, ${coords.lon.toFixed(2)}`;
+    }
     let closest = null;
     let best = Infinity;
     state.mapHits.forEach((hit) => {
@@ -1902,8 +2287,29 @@ function setupMapInteraction() {
     els.mapTooltip.style.top = `${Math.min(rect.height - 104, Math.max(10, y + 16))}px`;
     els.mapTooltip.classList.remove("hidden");
   });
+  els.sightingMapCanvas.addEventListener("click", (event) => {
+    const rect = els.sightingMapCanvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    const closest = state.mapHits.find((hit) => Math.hypot(hit.x - x, hit.y - y) <= hit.radius + 10);
+    if (!closest) return;
+    const coords = mapUnproject(closest.x, closest.y, rect.width, rect.height);
+    state.mapSelectedCluster = { ...closest, lat: coords.lat, lon: coords.lon };
+    openInspector({
+      type: "Map cluster",
+      title: `${closest.count.toLocaleString()} ${closest.label}`,
+      body: "Clustered records in this map cell. Treat public sighting density as reporting behavior plus potential event signal, then challenge against baseline layers.",
+      meta: [
+        ["lat", coords.lat.toFixed(2)],
+        ["lon", coords.lon.toFixed(2)],
+        ["layer", els.mapLayerFilter?.value || "sightings"]
+      ]
+    });
+    pushBlackbox("Map cluster inspected", `${closest.count.toLocaleString()} ${closest.label}`, "active");
+  });
   els.sightingMapCanvas.addEventListener("mouseleave", () => {
     els.mapTooltip.classList.add("hidden");
+    if (els.mapCoordinateReadout) els.mapCoordinateReadout.textContent = "--.--, --.--";
   });
 }
 
@@ -1923,8 +2329,11 @@ function renderAll() {
   renderTimeline();
   renderSources();
   renderBoard();
+  renderSystemPulse();
+  renderInspector();
   switchView(state.activeView);
   requestAnimationFrame(drawGraph);
+  requestAnimationFrame(drawMissionPreview);
 }
 
 function debounce(fn, delay = 140) {
@@ -1938,6 +2347,7 @@ function debounce(fn, delay = 140) {
 function bindEvents() {
   els.searchInput.addEventListener("input", debounce((event) => {
     state.search = event.target.value.trim();
+    if (state.search) pushBlackbox("Global search", state.search, "info");
     renderCases();
     renderFiles();
     renderCollections();
@@ -1987,11 +2397,33 @@ function bindEvents() {
   els.clearBoard?.addEventListener("click", () => {
     state.board.items = [];
     saveBoard();
+    pushBlackbox("Board cleared", "Pinned evidence reset", "attention");
+    renderSystemPulse();
     renderBoard();
   });
+  els.closeInspector?.addEventListener("click", () => {
+    state.inspector = { title: "No target selected", type: "Idle", body: "", meta: [] };
+    renderInspector();
+    pushBlackbox("Inspector cleared", "Drawer returned to idle", "info");
+  });
   els.mapLayerFilter?.addEventListener("change", () => {
+    document.querySelectorAll("[data-map-preset]").forEach((button) => {
+      button.classList.toggle("active", button.dataset.mapPreset === els.mapLayerFilter.value);
+    });
+    pushBlackbox("Map layer changed", els.mapLayerFilter.value, "info");
     loadMapSightings();
     drawSightingMap();
+  });
+  document.querySelectorAll("[data-map-preset]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (els.mapLayerFilter) els.mapLayerFilter.value = button.dataset.mapPreset || "sightings";
+      document.querySelectorAll("[data-map-preset]").forEach((item) => {
+        item.classList.toggle("active", item === button);
+      });
+      pushBlackbox("Map preset", button.textContent.trim(), "active");
+      loadMapSightings();
+      drawSightingMap();
+    });
   });
   els.mapPlay?.addEventListener("click", toggleMapPlayback);
   els.mapYearSlider?.addEventListener("input", () => {
@@ -2008,12 +2440,15 @@ function bindEvents() {
   window.addEventListener("resize", debounce(() => {
     drawGraph();
     drawSightingMap();
+    drawMissionPreview();
   }, 120));
   setupGraphInteraction();
   setupMapInteraction();
 }
 
 bindEvents();
+renderClock();
+setInterval(renderClock, 1000);
 loadBaseData().catch((error) => {
   console.error(error);
   els.snapshotStatus.textContent = "Could not load local database";

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>PURSUE UAP Atlas</title>
     <meta name="description" content="Local interactive research dashboard for public UAP and UFO release records.">
-    <link rel="stylesheet" href="styles.css?v=premium-science-20260526-1">
+    <link rel="stylesheet" href="styles.css?v=flightdeck-v3-20260526-1">
   </head>
   <body>
     <div class="signal-backdrop" aria-hidden="true">
@@ -13,20 +13,22 @@
       <div class="scanline"></div>
     </div>
     <a class="skip-link" href="#main">Skip to main content</a>
-    <header class="topbar">
+    <header class="topbar top-command-bar">
       <div>
-        <p class="eyebrow">Scientific intelligence workspace / local evidence graph</p>
+        <p class="eyebrow">PURSUE Flight Deck / Evidence operations</p>
         <h1>Global UAP Evidence Atlas</h1>
       </div>
-      <div class="source-strip" aria-label="Source snapshot">
+      <div class="command-cluster" aria-label="Command status">
         <span id="snapshotStatus">Loading source records...</span>
+        <span id="commandClock">--:--:--</span>
         <a href="https://www.war.gov/UFO/" target="_blank" rel="noreferrer">WAR.GOV/UFO</a>
       </div>
     </header>
+    <section id="systemPulse" class="system-pulse-strip" aria-label="System pulse"></section>
 
-    <main id="main" class="app-shell">
-      <div class="app-frame">
-        <aside class="workspace-rail" aria-label="Workspace navigation">
+    <main id="main" class="app-shell flightdeck-shell">
+      <div class="app-frame flightdeck-layout">
+        <aside class="workspace-rail module-rail" aria-label="Workspace navigation">
           <div class="rail-brand">
             <span class="brand-mark" aria-hidden="true">P</span>
             <div>
@@ -50,7 +52,7 @@
           </div>
         </aside>
 
-        <div class="workspace-main">
+        <div class="workspace-main dashboard-canvas">
           <section class="control-panel" aria-label="Database controls">
             <div class="search-row">
               <label for="searchInput">Search evidence graph</label>
@@ -107,8 +109,20 @@
                 <p>Official releases, archival metadata, public reports, and baseline challenge datasets are organized as separate evidence classes, then cross-referenced for defensible analysis.</p>
                 <div class="overview-actions">
                   <button class="ghost-button primary-action" data-view="map" type="button">Open Global Map</button>
+                  <button class="ghost-button" data-view="graph" type="button">Nexus Explorer</button>
                   <button class="ghost-button" data-view="board" type="button">Build Briefing</button>
                 </div>
+              </div>
+              <div class="mission-visual module-panel">
+                <div class="module-header">
+                  <div>
+                    <p class="eyebrow">Mission control preview</p>
+                    <h3>Live Evidence Constellation</h3>
+                  </div>
+                  <span class="module-status stable">ACTIVE</span>
+                </div>
+                <canvas id="missionPreviewCanvas" width="900" height="460" aria-label="Mission preview of evidence graph and map signals"></canvas>
+                <div id="missionTicker" class="mission-ticker"></div>
               </div>
               <div class="overview-metrics" id="overviewMetrics" aria-live="polite"></div>
               <div class="evidence-legend" id="evidenceLegend" aria-label="Evidence class legend"></div>
@@ -156,6 +170,11 @@
                 <span>Hover intelligence</span>
               </div>
             </div>
+            <div class="layer-preset-row" aria-label="Map layer presets">
+              <button class="active" data-map-preset="sightings" type="button">Public Leads</button>
+              <button data-map-preset="combined" type="button">Combined</button>
+              <button data-map-preset="baselines" type="button">Baseline Challenge</button>
+            </div>
             <div class="map-toolbar">
               <label>
                 Map layer
@@ -196,6 +215,7 @@
             <div class="map-canvas-shell">
               <canvas id="sightingMapCanvas" width="1100" height="620" aria-label="World map of public sighting reports"></canvas>
               <div id="mapTooltip" class="map-tooltip hidden" role="status"></div>
+              <div id="mapCoordinateReadout" class="map-coordinate-readout">--.--, --.--</div>
               <div class="map-legend" aria-label="Map legend">
                 <span><i class="legend-dot sighting"></i>Reports</span>
                 <span><i class="legend-dot fireball"></i>Fireballs</span>
@@ -240,15 +260,22 @@
       </section>
 
       <section id="graphPanel" class="graphics-grid hidden" aria-label="Research graphics">
-        <div class="viz-panel">
+        <div class="viz-panel nexus-panel">
           <div class="section-heading">
             <div>
-              <p class="eyebrow">Cross-reference graph</p>
-              <h2>Shared source signals</h2>
+              <p class="eyebrow">Nexus Explorer</p>
+              <h2>Evidence relationship field</h2>
             </div>
-            <button id="resetGraph" class="ghost-button" type="button">Reset</button>
+            <div class="graph-actions">
+              <button class="chip active" data-graph-filter="all" type="button">All</button>
+              <button class="chip" data-graph-filter="video" type="button">Video</button>
+              <button class="chip" data-graph-filter="archive" type="button">Archive</button>
+              <button class="chip" data-graph-filter="modern" type="button">Modern</button>
+              <button id="resetGraph" class="ghost-button" type="button">Reset</button>
+            </div>
           </div>
           <canvas id="networkCanvas" width="900" height="520" aria-label="Network graph of related UAP case groups"></canvas>
+          <div id="graphTelemetry" class="graph-telemetry"></div>
           <p class="caption">Edges are generated from shared year, agency, location, release, category, and text terms. They are navigation clues, not evidentiary conclusions.</p>
         </div>
 
@@ -273,9 +300,28 @@
         <div id="sourceList" class="source-list"></div>
       </section>
         </div>
+        <aside id="inspectorDrawer" class="inspector-drawer" aria-label="Inspector drawer">
+          <div class="inspector-header">
+            <div>
+              <p class="eyebrow">Inspector</p>
+              <h2 id="inspectorTitle">No target selected</h2>
+            </div>
+            <button id="closeInspector" class="ghost-button" type="button" aria-label="Close inspector">Close</button>
+          </div>
+          <div id="inspectorContent" class="inspector-content">
+            <p class="caption">Select a case, graph node, map cluster, source, or board item to inspect raw context without leaving the flight deck.</p>
+          </div>
+        </aside>
       </div>
+      <section class="mission-blackbox" aria-label="Mission blackbox">
+        <div class="blackbox-label">
+          <span class="field-label">Mission blackbox</span>
+          <strong id="blackboxStatus">Awaiting telemetry</strong>
+        </div>
+        <div id="blackboxStream" class="blackbox-stream"></div>
+      </section>
     </main>
 
-    <script type="module" src="app.js?v=premium-science-20260526-1"></script>
+    <script type="module" src="app.js?v=flightdeck-v3-20260526-1"></script>
   </body>
 </html>
