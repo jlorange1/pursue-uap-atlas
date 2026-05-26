@@ -1,5 +1,5 @@
-const validViews = new Set(["intel", "cases", "files", "findings", "collections", "records", "sightings", "baselines", "map", "board"]);
-const initialView = validViews.has(window.location.hash.slice(1)) ? window.location.hash.slice(1) : "map";
+const validViews = new Set(["intel", "cases", "files", "findings", "collections", "records", "sightings", "baselines", "map", "graph", "board"]);
+const initialView = validViews.has(window.location.hash.slice(1)) ? window.location.hash.slice(1) : "intel";
 
 const state = {
   summary: null,
@@ -47,6 +47,8 @@ const els = {
   intelQuery: document.querySelector("#intelQuery"),
   runIntelQuery: document.querySelector("#runIntelQuery"),
   intelResults: document.querySelector("#intelResults"),
+  overviewMetrics: document.querySelector("#overviewMetrics"),
+  evidenceLegend: document.querySelector("#evidenceLegend"),
   methodLoop: document.querySelector("#methodLoop"),
   integrationMatrix: document.querySelector("#integrationMatrix"),
   globalCoverage: document.querySelector("#globalCoverage"),
@@ -72,6 +74,7 @@ const els = {
   mapFocusSummary: document.querySelector("#mapFocusSummary"),
   mapTooltip: document.querySelector("#mapTooltip"),
   mapCaption: document.querySelector("#mapCaption"),
+  graphPanel: document.querySelector("#graphPanel"),
   boardPanel: document.querySelector("#boardPanel"),
   boardItems: document.querySelector("#boardItems"),
   boardNotes: document.querySelector("#boardNotes"),
@@ -82,19 +85,20 @@ const els = {
   detailContent: document.querySelector("#detailContent"),
   timelinePanel: document.querySelector("#timelinePanel"),
   sourceList: document.querySelector("#sourceList"),
+  sourcePanel: document.querySelector(".source-panel"),
   networkCanvas: document.querySelector("#networkCanvas"),
   resetGraph: document.querySelector("#resetGraph")
 };
 
 const colors = {
-  text: "#f2fff8",
-  muted: "#a7bab5",
-  line: "#28433f",
-  cyan: "#77e7ff",
-  amber: "#ffd166",
-  green: "#00ff99",
-  red: "#ff5f6d",
-  blue: "#8fb5ff"
+  text: "#eef8f4",
+  muted: "#9fb3b0",
+  line: "#2a3c44",
+  cyan: "#8bdff7",
+  amber: "#f2c46d",
+  green: "#64e6b1",
+  red: "#ff6d7a",
+  blue: "#96b8ff"
 };
 
 let staticMode = false;
@@ -242,6 +246,47 @@ function formatSourceBand(value) {
   return String(value || "source").replaceAll("_", " ");
 }
 
+function formatNumber(value) {
+  const number = Number(value || 0);
+  return Number.isFinite(number) ? number.toLocaleString() : "0";
+}
+
+function compactNumber(value) {
+  const number = Number(value || 0);
+  if (!Number.isFinite(number)) return "0";
+  return new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(number);
+}
+
+function evidenceClassRows() {
+  const s = state.summary || {};
+  return [
+    {
+      label: "Official primary",
+      value: (s.files || 0) + (s.official_records || 0),
+      tone: "primary",
+      body: "Released files, archives, hearings, agency reports, and catalog records."
+    },
+    {
+      label: "Public sighting leads",
+      value: s.public_sightings || 0,
+      tone: "lead",
+      body: "Crowdsourced reports for pattern discovery, bias checks, and OSINT triage."
+    },
+    {
+      label: "Baseline challenges",
+      value: s.baseline_events || 0,
+      tone: "baseline",
+      body: "NASA fireballs and FAA UAS reports used to challenge sighting hypotheses."
+    },
+    {
+      label: "Correlation graph",
+      value: s.cross_refs || 0,
+      tone: "graph",
+      body: "Generated links from shared source, time, agency, location, and text signals."
+    }
+  ];
+}
+
 function normalizeStaticRows(rows) {
   return (rows || []).map((row) => ({
     ...row,
@@ -374,22 +419,61 @@ function stat(label, value, tone = "") {
   return `<div class="stat ${tone}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
 }
 
+function renderOverview() {
+  const s = state.summary || {};
+  const officialTotal = (s.files || 0) + (s.collections || 0) + (s.official_records || 0);
+  const publicTotal = s.public_sightings || 0;
+  const baselineTotal = s.baseline_events || 0;
+  const provenanceRows = s.byProvenanceBand || s.byReliability || [];
+  const officialBand = provenanceRows
+    .filter((row) => /official/i.test(row.label))
+    .reduce((sum, row) => sum + Number(row.value || 0), 0);
+  const provenanceTotal = provenanceRows.reduce((sum, row) => sum + Number(row.value || 0), 0) || 1;
+  const officialShare = Math.round((officialBand / provenanceTotal) * 100);
+  if (els.overviewMetrics) {
+    els.overviewMetrics.innerHTML = [
+      ["Evidence records", compactNumber(officialTotal + publicTotal + baselineTotal), "official + public + baseline"],
+      ["Official coverage", `${formatNumber(s.official_jurisdiction_count || 0)} jurisdictions`, `${officialShare}% official provenance mix`],
+      ["Analysis graph", formatNumber(s.cross_refs || 0), "generated cross-reference edges"],
+      ["Atlas score", `${atlasScore()}%`, "derived completeness index"]
+    ].map(([label, value, body]) => `
+      <article class="overview-metric">
+        <span>${escapeHtml(label)}</span>
+        <strong>${escapeHtml(value)}</strong>
+        <p>${escapeHtml(body)}</p>
+      </article>
+    `).join("");
+  }
+  if (els.evidenceLegend) {
+    els.evidenceLegend.innerHTML = evidenceClassRows().map((item) => `
+      <article class="evidence-class ${escapeHtml(item.tone)}">
+        <span class="evidence-dot" aria-hidden="true"></span>
+        <div>
+          <strong>${escapeHtml(item.label)}</strong>
+          <p>${escapeHtml(formatNumber(item.value))} records. ${escapeHtml(item.body)}</p>
+        </div>
+      </article>
+    `).join("");
+  }
+}
+
 function renderStats() {
   const s = state.summary;
   els.statsGrid.innerHTML = [
-    stat("Case groups", s.cases),
-    stat("File records", s.files),
-    stat("Videos", s.byKind.find((x) => /video/i.test(x.label))?.value || 0),
-    stat("PDFs", s.byKind.find((x) => /pdf/i.test(x.label))?.value || 0),
-    stat("Collections", s.collections),
-    stat("Jurisdictions", s.official_jurisdiction_count || s.byJurisdiction?.length || 0),
-    stat("Official records", s.official_records || 0),
-    stat("Public sightings", s.public_sightings),
-    stat("Baselines", s.baseline_events || 0),
-    stat("Research signals", s.research_signals || 0),
-    stat("Cross refs", s.cross_refs)
+    stat("Case groups", formatNumber(s.cases), "primary"),
+    stat("File records", formatNumber(s.files)),
+    stat("Videos", formatNumber(s.byKind.find((x) => /video/i.test(x.label))?.value || 0)),
+    stat("PDFs", formatNumber(s.byKind.find((x) => /pdf/i.test(x.label))?.value || 0)),
+    stat("Collections", formatNumber(s.collections)),
+    stat("Jurisdictions", formatNumber(s.official_jurisdiction_count || s.byJurisdiction?.length || 0), "primary"),
+    stat("Official records", formatNumber(s.official_records || 0)),
+    stat("Public sightings", compactNumber(s.public_sightings), "lead"),
+    stat("Baselines", compactNumber(s.baseline_events || 0), "baseline"),
+    stat("Research signals", formatNumber(s.research_signals || 0)),
+    stat("Cross refs", formatNumber(s.cross_refs), "graph")
   ].join("");
-  els.snapshotStatus.textContent = `${s.cases} case groups, ${s.files} files, ${s.collections} collections, ${s.official_jurisdiction_count || 0} official jurisdictions, ${s.official_records || 0} official records, ${s.public_sightings} public sightings`;
+  els.snapshotStatus.textContent = `${formatNumber(s.cases)} cases, ${formatNumber(s.files)} files, ${formatNumber(s.collections)} source collections, ${formatNumber(s.official_jurisdiction_count || 0)} official jurisdictions, ${formatNumber(s.public_sightings)} public sightings`;
+  renderOverview();
 }
 
 function fillSelect(select, rows, allLabel) {
@@ -917,6 +1001,9 @@ function renderBoard() {
   const items = state.board.items;
   const typeCounts = countBy(items, "type");
   const avgScore = items.length ? Math.round(items.reduce((sum, item) => sum + Number(item.score || 50), 0) / items.length) : 0;
+  const officialPinned = items.filter((item) => /case|official|source|file/i.test(item.type || "")).length;
+  const leadPinned = items.filter((item) => /sighting|lead/i.test(item.type || "")).length;
+  const baselinePinned = items.filter((item) => /baseline|fireball|uas/i.test(item.type || "")).length;
   const rollup = [
     ["Pinned", items.length],
     ["Avg score", avgScore ? `${avgScore}/99` : "--"],
@@ -942,6 +1029,11 @@ function renderBoard() {
   els.boardItems.innerHTML = `
     <div class="collection-rollup board-rollup">
       ${rollup.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("")}
+    </div>
+    <div class="method-banner">
+      <span class="field-label">Briefing discipline</span>
+      <strong>${escapeHtml(officialPinned)} official / ${escapeHtml(leadPinned)} leads / ${escapeHtml(baselinePinned)} baselines</strong>
+      <p>Use the board as an analyst package: separate primary records from public leads and challenge each hypothesis against baseline events.</p>
     </div>
     ${itemHtml}
   `;
@@ -1105,21 +1197,21 @@ function drawGeoGeometry(ctx, geometry, width, height) {
 
 function drawBasemap(ctx, width, height) {
   const ocean = ctx.createLinearGradient(0, 0, width, height);
-  ocean.addColorStop(0, "#020507");
-  ocean.addColorStop(0.42, "#061419");
-  ocean.addColorStop(1, "#020708");
+  ocean.addColorStop(0, "#05080d");
+  ocean.addColorStop(0.42, "#0b1720");
+  ocean.addColorStop(1, "#030609");
   ctx.fillStyle = ocean;
   ctx.fillRect(0, 0, width, height);
 
   const halo = ctx.createRadialGradient(width * 0.5, height * 0.45, 12, width * 0.5, height * 0.45, width * 0.76);
-  halo.addColorStop(0, "rgba(0,255,153,0.12)");
-  halo.addColorStop(0.48, "rgba(119,231,255,0.055)");
+  halo.addColorStop(0, "rgba(139,223,247,0.12)");
+  halo.addColorStop(0.48, "rgba(100,230,177,0.055)");
   halo.addColorStop(1, "rgba(0,0,0,0)");
   ctx.fillStyle = halo;
   ctx.fillRect(0, 0, width, height);
 
   ctx.save();
-  ctx.strokeStyle = "rgba(119,231,255,0.13)";
+  ctx.strokeStyle = "rgba(139,223,247,0.1)";
   ctx.lineWidth = 1;
   for (let lon = -180; lon <= 180; lon += 20) {
     const a = mapProject(lon, -82, width, height);
@@ -1149,12 +1241,12 @@ function drawBasemap(ctx, width, height) {
   ctx.save();
   ctx.beginPath();
   state.worldGeo.features.forEach((feature) => drawGeoGeometry(ctx, feature.geometry, width, height));
-  ctx.shadowColor = "rgba(0,255,153,0.32)";
-  ctx.shadowBlur = 18;
-  ctx.fillStyle = "rgba(18, 43, 39, 0.86)";
+  ctx.shadowColor = "rgba(139,223,247,0.22)";
+  ctx.shadowBlur = 14;
+  ctx.fillStyle = "rgba(26, 39, 43, 0.9)";
   ctx.fill("evenodd");
   ctx.shadowBlur = 0;
-  ctx.strokeStyle = "rgba(119,231,255,0.2)";
+  ctx.strokeStyle = "rgba(139,223,247,0.22)";
   ctx.lineWidth = 0.72;
   ctx.stroke();
   ctx.restore();
@@ -1163,18 +1255,18 @@ function drawBasemap(ctx, width, height) {
   ctx.beginPath();
   state.worldGeo.features.forEach((feature) => drawGeoGeometry(ctx, feature.geometry, width, height));
   const landGlow = ctx.createLinearGradient(0, 0, width, height);
-  landGlow.addColorStop(0, "rgba(0,255,153,0.06)");
-  landGlow.addColorStop(0.55, "rgba(255,209,102,0.035)");
-  landGlow.addColorStop(1, "rgba(119,231,255,0.05)");
+  landGlow.addColorStop(0, "rgba(100,230,177,0.065)");
+  landGlow.addColorStop(0.55, "rgba(242,196,109,0.035)");
+  landGlow.addColorStop(1, "rgba(139,223,247,0.06)");
   ctx.fillStyle = landGlow;
   ctx.fill("evenodd");
   ctx.restore();
 
   ctx.save();
-  ctx.strokeStyle = "rgba(0,255,153,0.42)";
+  ctx.strokeStyle = "rgba(139,223,247,0.34)";
   ctx.lineWidth = 1;
   ctx.strokeRect(0.5, 0.5, width - 1, height - 1);
-  ctx.strokeStyle = "rgba(255,209,102,0.38)";
+  ctx.strokeStyle = "rgba(242,196,109,0.34)";
   ctx.beginPath();
   ctx.moveTo(16, 16);
   ctx.lineTo(70, 16);
@@ -1239,7 +1331,13 @@ function drawClusterLayer(ctx, items, width, height, colorFn, options = {}) {
     const y = cell.y / cell.count;
     const radius = Math.max(2, Math.min(18, 1.6 + Math.sqrt(cell.count / maxCount) * 18));
     ctx.shadowColor = cell.color;
-    ctx.shadowBlur = 12;
+    ctx.shadowBlur = 16;
+    ctx.globalAlpha = Math.max(0.08, Math.min(0.22, 0.08 + cell.count / maxCount));
+    ctx.strokeStyle = cell.color;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(x, y, radius * 1.9, 0, Math.PI * 2);
+    ctx.stroke();
     ctx.fillStyle = cell.color;
     ctx.globalAlpha = Math.max(0.2, Math.min(0.75, 0.2 + cell.count / maxCount));
     ctx.beginPath();
@@ -1378,6 +1476,7 @@ function drawSightingMap() {
       <div><span>Sighting marks</span><strong>${escapeHtml(renderedSightings.toLocaleString())}</strong></div>
       <div><span>Baseline marks</span><strong>${escapeHtml(renderedBaselines.toLocaleString())}</strong></div>
       <div><span>Top shape</span><strong>${escapeHtml(topShape?.label || "n/a")}</strong></div>
+      <div><span>Evidence caution</span><strong>${escapeHtml(layer === "baselines" ? "challenge" : layer === "combined" ? "mixed" : "leads")}</strong></div>
     `;
   }
   if (els.mapCaption) {
@@ -1403,7 +1502,9 @@ function switchView(view) {
   els.sightingsPanel.classList.toggle("hidden", view !== "sightings");
   els.baselinesPanel.classList.toggle("hidden", view !== "baselines");
   els.mapPanel.classList.toggle("hidden", view !== "map");
+  els.graphPanel?.classList.toggle("hidden", view !== "graph");
   els.boardPanel?.classList.toggle("hidden", view !== "board");
+  els.sourcePanel?.classList.toggle("hidden", view !== "collections");
   if (view === "sightings" && staticMode && !fullStaticSightingsLoaded) {
     loadStaticSightings();
   }
@@ -1413,6 +1514,9 @@ function switchView(view) {
   }
   if (view === "board") {
     renderBoard();
+  }
+  if (view === "graph") {
+    requestAnimationFrame(drawGraph);
   }
 }
 
@@ -1521,6 +1625,7 @@ function renderDetail() {
       <p>${escapeHtml(edge.basis)}. Weight ${escapeHtml(edge.weight)}.</p>
     </button>
   `).join("");
+  const caseScore = Math.min(96, 62 + detail.files.length + Math.min(12, detail.outgoing.length * 2));
   els.detailContent.innerHTML = `
     <div class="detail-hero">
       ${item.thumbnail_url ? `<img src="${escapeHtml(item.thumbnail_url)}" alt="">` : ""}
@@ -1533,8 +1638,14 @@ function renderDetail() {
         <span class="chip amber">${escapeHtml(item.timeline_date || "No date")}</span>
         <span class="chip">${escapeHtml(item.status || "Source records")}</span>
         <span class="chip">${escapeHtml(detail.files.length)} files</span>
+        <span class="chip science">${escapeHtml(credibilityLabel(caseScore))} ${escapeHtml(caseScore)}/99</span>
       </div>
       <p>${escapeHtml(item.summary)}</p>
+      <div class="method-banner compact">
+        <span class="field-label">Scientific reading</span>
+        <strong>Primary-source dossier with generated correlations</strong>
+        <p>Use file count, source agency, date anchor, and cross-reference basis as review cues. Correlations are leads, not conclusions.</p>
+      </div>
       <div class="case-meta">
         <button class="chip pin-chip" type="button" data-pin-case="${escapeHtml(item.id)}">Pin case</button>
         <a class="chip amber" href="${escapeHtml(item.case_url)}" target="_blank" rel="noreferrer">Open mirrored case page</a>
@@ -1561,7 +1672,7 @@ function renderDetail() {
       summary: item.summary,
       url: item.case_url,
       caseId: item.id,
-      score: Math.min(96, 62 + detail.files.length + Math.min(12, detail.outgoing.length * 2))
+      score: caseScore
     });
   });
 }

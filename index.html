@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>PURSUE UAP Atlas</title>
     <meta name="description" content="Local interactive research dashboard for public UAP and UFO release records.">
-    <link rel="stylesheet" href="styles.css?v=map-ops-20260525-3">
+    <link rel="stylesheet" href="styles.css?v=premium-science-20260526-1">
   </head>
   <body>
     <div class="signal-backdrop" aria-hidden="true">
@@ -15,8 +15,8 @@
     <a class="skip-link" href="#main">Skip to main content</a>
     <header class="topbar">
       <div>
-        <p class="eyebrow">XENOFILE NODE / Local database</p>
-        <h1>PURSUE UAP Atlas</h1>
+        <p class="eyebrow">Scientific intelligence workspace / local evidence graph</p>
+        <h1>Global UAP Evidence Atlas</h1>
       </div>
       <div class="source-strip" aria-label="Source snapshot">
         <span id="snapshotStatus">Loading source records...</span>
@@ -25,43 +25,69 @@
     </header>
 
     <main id="main" class="app-shell">
-      <section class="control-panel" aria-label="Database controls">
-        <div class="search-row">
-          <label for="searchInput">Search records</label>
-          <input id="searchInput" type="search" placeholder="Try Syria, balloon, NASA, 1948, infrared">
-        </div>
-        <div class="filters">
-          <label>
-            Category
-            <select id="categoryFilter">
-              <option value="">All categories</option>
-            </select>
-          </label>
-          <label>
-            Agency
-            <select id="agencyFilter">
-              <option value="">All agencies</option>
-            </select>
-          </label>
-          <label>
-            File type
-            <select id="kindFilter">
-              <option value="">All types</option>
-            </select>
-          </label>
-        </div>
-        <div class="stats-grid" id="statsGrid" aria-live="polite"></div>
-      </section>
+      <div class="app-frame">
+        <aside class="workspace-rail" aria-label="Workspace navigation">
+          <div class="rail-brand">
+            <span class="brand-mark" aria-hidden="true">P</span>
+            <div>
+              <p class="eyebrow">PURSUE Atlas</p>
+              <strong>Evidence OS</strong>
+            </div>
+          </div>
+          <nav class="rail-nav" aria-label="Primary workspaces">
+            <button class="active" data-view="intel" type="button"><span>01</span>Overview</button>
+            <button data-view="map" type="button"><span>02</span>Global Map</button>
+            <button data-view="cases" type="button"><span>03</span>Cases</button>
+            <button data-view="collections" type="button"><span>04</span>Sources</button>
+            <button data-view="sightings" type="button"><span>05</span>Sightings</button>
+            <button data-view="baselines" type="button"><span>06</span>Baselines</button>
+            <button data-view="graph" type="button"><span>07</span>Graph</button>
+            <button data-view="board" type="button"><span>08</span>Board</button>
+          </nav>
+          <div class="rail-disclaimer">
+            <span class="field-label">Scientific posture</span>
+            <p>Official records, public reports, and baseline events are separated by evidence class.</p>
+          </div>
+        </aside>
+
+        <div class="workspace-main">
+          <section class="control-panel" aria-label="Database controls">
+            <div class="search-row">
+              <label for="searchInput">Search evidence graph</label>
+              <input id="searchInput" type="search" placeholder="Try Syria, balloon, NASA, 1948, infrared">
+            </div>
+            <div class="filters">
+              <label>
+                Category
+                <select id="categoryFilter">
+                  <option value="">All categories</option>
+                </select>
+              </label>
+              <label>
+                Agency
+                <select id="agencyFilter">
+                  <option value="">All agencies</option>
+                </select>
+              </label>
+              <label>
+                File type
+                <select id="kindFilter">
+                  <option value="">All types</option>
+                </select>
+              </label>
+            </div>
+            <div class="stats-grid" id="statsGrid" aria-live="polite"></div>
+          </section>
 
       <section class="dashboard-grid">
         <div class="workbench">
           <div class="section-heading">
             <div>
-              <p class="eyebrow">Evidence console</p>
-              <h2>Browse, compare, map</h2>
+              <p class="eyebrow">Scientific command center</p>
+              <h2>Browse, compare, challenge</h2>
             </div>
             <div class="segmented" role="tablist" aria-label="Primary view">
-              <button class="active" data-view="intel" type="button">Intel</button>
+              <button class="active" data-view="intel" type="button">Overview</button>
               <button data-view="cases" type="button">Cases</button>
               <button data-view="files" type="button">Files</button>
               <button data-view="findings" type="button">Findings</button>
@@ -74,12 +100,25 @@
             </div>
           </div>
           <div id="intelPanel" class="intel-panel" aria-live="polite">
+            <section class="executive-overview">
+              <div class="overview-copy">
+                <p class="eyebrow">Scientific evidence atlas</p>
+                <h2>Global UAP Evidence Atlas</h2>
+                <p>Official releases, archival metadata, public reports, and baseline challenge datasets are organized as separate evidence classes, then cross-referenced for defensible analysis.</p>
+                <div class="overview-actions">
+                  <button class="ghost-button primary-action" data-view="map" type="button">Open Global Map</button>
+                  <button class="ghost-button" data-view="board" type="button">Build Briefing</button>
+                </div>
+              </div>
+              <div class="overview-metrics" id="overviewMetrics" aria-live="polite"></div>
+              <div class="evidence-legend" id="evidenceLegend" aria-label="Evidence class legend"></div>
+            </section>
             <div class="intel-grid">
               <section class="intel-hero">
                 <div>
-                  <p class="eyebrow">Research command center</p>
-                  <h3>Integrated UAP intelligence workspace</h3>
-                  <p>Official releases, archival metadata, public sightings, natural baselines, and OSINT methods stay separated by evidence class while still being cross-queryable.</p>
+                  <p class="eyebrow">Evidence discipline</p>
+                  <h3>Scientific method layer</h3>
+                  <p>Every surface distinguishes official records, public sighting leads, and baseline challenge events so the interface feels investigative without implying unsupported conclusions.</p>
                 </div>
                 <div class="score-ring" id="coverageScore" aria-label="Atlas coverage score">--</div>
               </section>
@@ -108,8 +147,8 @@
           <div id="mapPanel" class="map-panel hidden" aria-live="polite">
             <div class="map-command-header">
               <div>
-                <p class="eyebrow">Vector basemap / operations layer</p>
-                <h3>Global UAP Operations Map</h3>
+                <p class="eyebrow">Vector basemap / challenge layers</p>
+                <h3>Global Evidence Map</h3>
               </div>
               <div class="map-status-chips" aria-label="Map capabilities">
                 <span>180 country boundaries</span>
@@ -200,7 +239,7 @@
         </aside>
       </section>
 
-      <section class="graphics-grid" aria-label="Research graphics">
+      <section id="graphPanel" class="graphics-grid hidden" aria-label="Research graphics">
         <div class="viz-panel">
           <div class="section-heading">
             <div>
@@ -233,8 +272,10 @@
         </div>
         <div id="sourceList" class="source-list"></div>
       </section>
+        </div>
+      </div>
     </main>
 
-    <script type="module" src="app.js?v=map-ops-20260525-3"></script>
+    <script type="module" src="app.js?v=premium-science-20260526-1"></script>
   </body>
 </html>
